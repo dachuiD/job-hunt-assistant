@@ -1,0 +1,1888 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>求职小助 · AI 实习岗位助手</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 3px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  .fade-in { animation: fadeIn 0.3s ease-out; }
+  .gradient-text {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+// ============================================================
+// 求职小助 · AI 实习岗位助手
+// 单文件纯前端 React 应用，所有数据存储在 localStorage
+// ============================================================
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+// =============== 存储层 ===============
+const STORAGE_KEY = 'job_hunt_app_v1';
+const defaultState = {
+  onboarded: false,
+  profile: { name: '', contactEmail: '' },
+  preferencePriority: { job_type: 40, company: 30, city: 20, salary: 10 },
+  target: {
+    jobTitle: '产品经理实习',
+    keywords: [
+      { text: 'AI产品实习', weight: 40 },
+      { text: '策略产品实习', weight: 30 },
+      { text: '商业化产品实习', weight: 20 },
+      { text: 'B端产品实习', weight: 10 },
+    ],
+    cities: [
+      { text: '上海', weight: 70 },
+      { text: '杭州', weight: 20 },
+      { text: '深圳', weight: 10 },
+    ],
+    excludeCities: [],
+  },
+  company: { liked: ['字节跳动', '腾讯系', '内容类互联网'], disliked: [] },
+  filters: {
+    maxDurationMonths: 6,
+    minWorkingDays: 4,
+    degreeRequirement: '',
+    immediateStartOnly: false,
+    minSalary: '',
+  },
+  output: {
+    mode: 'stable',
+    minCount: 20,
+    jdDisplayMode: 'full_text',
+    searchLookbackHours: 72,
+  },
+  ai: {
+    provider: 'deepseek',
+    apiKey: '',
+    model: '',
+    useShared: false,
+    sharedEndpoint: '',
+  },
+  jobs: [],
+  applications: [],
+  interview: { history: [], mistakes: [] },
+  stats: { totalSearched: 0, totalJobs: 0 },
+};
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return defaultState;
+    const parsed = JSON.parse(raw);
+    return {
+      ...defaultState, ...parsed,
+      profile: { ...defaultState.profile, ...(parsed.profile || {}) },
+      preferencePriority: { ...defaultState.preferencePriority, ...(parsed.preferencePriority || {}) },
+      target: { ...defaultState.target, ...(parsed.target || {}) },
+      company: { ...defaultState.company, ...(parsed.company || {}) },
+      filters: { ...defaultState.filters, ...(parsed.filters || {}) },
+      output: { ...defaultState.output, ...(parsed.output || {}) },
+      ai: { ...defaultState.ai, ...(parsed.ai || {}) },
+      interview: { ...defaultState.interview, ...(parsed.interview || {}) },
+      stats: { ...defaultState.stats, ...(parsed.stats || {}) },
+    };
+  } catch (e) { console.error(e); return defaultState; }
+}
+function saveState(s) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch (e) { console.error(e); } }
+
+// =============== AI 服务层 ===============
+const AI_PROVIDERS = {
+  deepseek: {
+    name: 'DeepSeek', badge: '推荐 · 便宜',
+    endpoint: 'https://api.deepseek.com/chat/completions',
+    defaultModel: 'deepseek-chat',
+    models: ['deepseek-chat', 'deepseek-reasoner'],
+    keyUrl: 'https://platform.deepseek.com/api_keys',
+    priceHint: '约 ¥0.001/千 token，一天几毛钱',
+    guide: [
+      '打开 platform.deepseek.com 注册账号',
+      '左侧"充值"充 1~5 元即可用很久',
+      '左侧"API Keys" → 创建新密钥 → 复制 sk-xxxxx',
+      '粘贴到下方"API Key"输入框',
+    ],
+  },
+  kimi: {
+    name: 'Kimi (月之暗面)', badge: '新人免费额度',
+    endpoint: 'https://api.moonshot.cn/v1/chat/completions',
+    defaultModel: 'moonshot-v1-8k',
+    models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+    keyUrl: 'https://platform.moonshot.cn/console/api-keys',
+    priceHint: '新用户送 15 元免费额度',
+    guide: ['访问 platform.moonshot.cn 注册', '进入"API Key 管理"', '创建新密钥并复制', '粘贴到下方输入框'],
+  },
+  openai: {
+    name: 'OpenAI', badge: '效果最强',
+    endpoint: 'https://api.openai.com/v1/chat/completions',
+    defaultModel: 'gpt-4o-mini',
+    models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo'],
+    keyUrl: 'https://platform.openai.com/api-keys',
+    priceHint: 'gpt-4o-mini 约 ¥0.01/次',
+    guide: ['需要海外信用卡注册', '访问 platform.openai.com/api-keys', '创建 secret key', '国内可能需配置代理'],
+  },
+  qwen: {
+    name: '通义千问 (阿里)', badge: '国内稳定',
+    endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+    defaultModel: 'qwen-plus',
+    models: ['qwen-turbo', 'qwen-plus', 'qwen-max'],
+    keyUrl: 'https://bailian.console.aliyun.com/',
+    priceHint: 'qwen-turbo 约 ¥0.003/千 token',
+    guide: ['登录阿里云百炼控制台', '获取 API-KEY', '粘贴到下方输入框'],
+  },
+};
+
+async function callAI(state, messages, { json = false, temperature = 0.7 } = {}) {
+  const { ai } = state;
+  if (ai.useShared && ai.sharedEndpoint) {
+    const res = await fetch(ai.sharedEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages, json, temperature }),
+    });
+    if (!res.ok) throw new Error(`共享代理请求失败: ${res.status}`);
+    const data = await res.json();
+    return data.content || data.choices?.[0]?.message?.content || '';
+  }
+  const provider = AI_PROVIDERS[ai.provider];
+  if (!provider) throw new Error('未知 AI 服务商');
+  if (!ai.apiKey) throw new Error('请先在「AI 设置」中配置 API Key');
+
+  const body = { model: ai.model || provider.defaultModel, messages, temperature };
+  if (json) body.response_format = { type: 'json_object' };
+
+  const res = await fetch(provider.endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ai.apiKey}` },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`AI 请求失败 (${res.status}): ${text.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
+// =============== 工具函数 ===============
+function uuid() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+function formatDate(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function extractJSON(text) {
+  if (!text) return null;
+  try { return JSON.parse(text); } catch {}
+  const block = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (block) { try { return JSON.parse(block[1]); } catch {} }
+  const starts = ['{', '['].map(c => text.indexOf(c)).filter(i => i >= 0);
+  if (!starts.length) return null;
+  const start = Math.min(...starts);
+  const end = Math.max(text.lastIndexOf('}'), text.lastIndexOf(']'));
+  if (end < start) return null;
+  try { return JSON.parse(text.slice(start, end + 1)); } catch { return null; }
+}
+
+// =============== UI 基础组件 ===============
+function Icon({ name, className = "w-5 h-5" }) {
+  const icons = {
+    home: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6",
+    settings: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z",
+    search: "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z",
+    folder: "M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z",
+    brain: "M12 2a3 3 0 00-3 3v1a3 3 0 00-3 3v1a3 3 0 00-3 3v2a3 3 0 003 3v1a3 3 0 003 3 3 3 0 003 3 3 3 0 003-3 3 3 0 003-3v-1a3 3 0 003-3v-2a3 3 0 00-3-3V9a3 3 0 00-3-3V5a3 3 0 00-3-3z",
+    plus: "M12 4v16m8-8H4",
+    trash: "M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3",
+    sparkles: "M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z",
+    check: "M5 13l4 4L19 7",
+    x: "M6 18L18 6M6 6l12 12",
+    clipboard: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2",
+    external: "M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14",
+    download: "M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4",
+    upload: "M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12",
+    book: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253",
+  };
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" className={className}>
+      <path strokeLinecap="round" strokeLinejoin="round" d={icons[name] || icons.home} />
+    </svg>
+  );
+}
+
+function Button({ children, onClick, variant = 'primary', size = 'md', disabled, className = '', type = 'button' }) {
+  const variants = {
+    primary: 'bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800 shadow-sm',
+    secondary: 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50',
+    ghost: 'text-slate-600 hover:bg-slate-100',
+    danger: 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200',
+    success: 'bg-emerald-600 text-white hover:bg-emerald-700',
+  };
+  const sizes = { sm: 'px-3 py-1.5 text-sm', md: 'px-4 py-2 text-sm', lg: 'px-5 py-2.5 text-base' };
+  return (
+    <button type={type} onClick={onClick} disabled={disabled}
+      className={`rounded-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${sizes[size]} ${className}`}>
+      {children}
+    </button>
+  );
+}
+
+function Card({ children, className = '' }) {
+  return <div className={`bg-white rounded-xl border border-slate-200 ${className}`}>{children}</div>;
+}
+
+function Tag({ children, onRemove, variant = 'default' }) {
+  const colors = {
+    default: 'bg-slate-100 text-slate-700',
+    indigo: 'bg-indigo-50 text-indigo-700',
+    emerald: 'bg-emerald-50 text-emerald-700',
+    rose: 'bg-rose-50 text-rose-700',
+    amber: 'bg-amber-50 text-amber-700',
+  };
+  return (
+    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium ${colors[variant]}`}>
+      {children}
+      {onRemove && (
+        <button onClick={onRemove} className="hover:bg-black/10 rounded p-0.5 -mr-1">
+          <Icon name="x" className="w-3 h-3" />
+        </button>
+      )}
+    </span>
+  );
+}
+
+function Modal({ open, onClose, title, children, footer, size = 'md' }) {
+  if (!open) return null;
+  const sizes = { sm: 'max-w-md', md: 'max-w-2xl', lg: 'max-w-4xl', xl: 'max-w-6xl' };
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm fade-in" onClick={onClose}>
+      <div className={`w-full ${sizes[size]} bg-white rounded-2xl shadow-2xl flex flex-col max-h-[90vh]`} onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <h3 className="text-lg font-semibold">{title}</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100"><Icon name="x" /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-6 py-5 scrollbar-thin">{children}</div>
+        {footer && <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-2">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+function Toast({ message, type, onClose }) {
+  useEffect(() => {
+    if (!message) return;
+    const timer = setTimeout(onClose, 3000);
+    return () => clearTimeout(timer);
+  }, [message]);
+  if (!message) return null;
+  const colors = { success: 'bg-emerald-600', error: 'bg-red-600', info: 'bg-slate-800' };
+  return (
+    <div className={`fixed top-6 right-6 z-[100] px-4 py-3 rounded-lg text-white shadow-lg fade-in ${colors[type] || colors.info}`}>
+      {message}
+    </div>
+  );
+}
+
+function Sidebar({ current, onNav, state }) {
+  const items = [
+    { id: 'dashboard', label: '每日播报', icon: 'home' },
+    { id: 'search', label: 'AI 搜岗', icon: 'sparkles' },
+    { id: 'jobs', label: '岗位看板', icon: 'folder', badge: state.jobs.length || null },
+    { id: 'tracker', label: '投递管理', icon: 'clipboard' },
+    { id: 'interview', label: '面试备战', icon: 'book' },
+    { id: 'config', label: '求职偏好', icon: 'settings' },
+    { id: 'ai-settings', label: 'AI 设置', icon: 'brain' },
+  ];
+  return (
+    <aside className="w-60 bg-white border-r border-slate-200 flex flex-col h-screen sticky top-0">
+      <div className="px-5 py-5 border-b border-slate-100">
+        <div className="flex items-center gap-2">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white text-lg">⚽</div>
+          <div>
+            <div className="font-bold text-slate-900">求职小助</div>
+            <div className="text-xs text-slate-500">AI 实习岗位管家</div>
+          </div>
+        </div>
+      </div>
+      <nav className="flex-1 px-3 py-4 space-y-1">
+        {items.map(item => (
+          <button key={item.id} onClick={() => onNav(item.id)}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              current === item.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'
+            }`}>
+            <Icon name={item.icon} className="w-4 h-4" />
+            <span className="flex-1 text-left">{item.label}</span>
+            {item.badge && <span className="text-xs px-1.5 py-0.5 rounded-md bg-slate-200 text-slate-600">{item.badge}</span>}
+          </button>
+        ))}
+      </nav>
+      <div className="px-3 py-3 border-t border-slate-100">
+        <div className="px-3 py-2 text-xs text-slate-500">{state.profile.name ? `Hi, ${state.profile.name}` : '匿名用户'}</div>
+      </div>
+    </aside>
+  );
+}
+// =============== Onboarding 首次引导 ===============
+function Onboarding({ state, setState, onDone }) {
+  const [step, setStep] = useState(0);
+  const [draft, setDraft] = useState({
+    name: state.profile.name || '',
+    jobTitle: state.target.jobTitle,
+    keywords: state.target.keywords.map(k => k.text).join('、'),
+    cities: state.target.cities.map(c => c.text).join('、'),
+    liked: [...(state.company.liked || [])],
+    disliked: [...(state.company.disliked || [])],
+    likedInput: '',
+    dislikedInput: '',
+  });
+
+  const toggleLiked = (name) => {
+    setDraft(d => ({
+      ...d,
+      liked: d.liked.includes(name) ? d.liked.filter(x => x !== name) : [...d.liked, name],
+      disliked: d.disliked.filter(x => x !== name),
+    }));
+  };
+  const toggleDisliked = (name) => {
+    setDraft(d => ({
+      ...d,
+      disliked: d.disliked.includes(name) ? d.disliked.filter(x => x !== name) : [...d.disliked, name],
+      liked: d.liked.filter(x => x !== name),
+    }));
+  };
+  const addLiked = () => {
+    const t = draft.likedInput.trim();
+    if (!t || draft.liked.includes(t)) { setDraft(d => ({ ...d, likedInput: '' })); return; }
+    setDraft(d => ({ ...d, liked: [...d.liked, t], likedInput: '' }));
+  };
+  const addDisliked = () => {
+    const t = draft.dislikedInput.trim();
+    if (!t || draft.disliked.includes(t)) { setDraft(d => ({ ...d, dislikedInput: '' })); return; }
+    setDraft(d => ({ ...d, disliked: [...d.disliked, t], dislikedInput: '' }));
+  };
+
+  const finish = () => {
+    setState({
+      ...state,
+      onboarded: true,
+      profile: { ...state.profile, name: draft.name },
+      target: {
+        ...state.target,
+        jobTitle: draft.jobTitle,
+        keywords: draft.keywords.split(/[、,，]/).map(s => s.trim()).filter(Boolean).map((t, i, arr) => ({
+          text: t, weight: Math.round(100 / arr.length),
+        })),
+        cities: draft.cities.split(/[、,，]/).map(s => s.trim()).filter(Boolean).map((t, i, arr) => ({
+          text: t, weight: Math.round(100 / arr.length),
+        })),
+      },
+      company: { liked: draft.liked, disliked: draft.disliked },
+    });
+    onDone && onDone();
+  };
+
+  const steps = [
+    {
+      title: '欢迎使用求职小助 ⚽',
+      content: (
+        <div className="space-y-4">
+          <p className="text-slate-600 leading-relaxed">这是一个为在校大学生打造的 AI 实习求职助手。你只需要告诉它你的偏好，它会：</p>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { icon: '🎯', title: '精准筛岗', desc: '基于关键词/城市/公司多维度打分' },
+              { icon: '🤖', title: 'AI 搜索', desc: '联网实时搜索最新实习岗位' },
+              { icon: '📋', title: '投递管理', desc: '看板式追踪每一次投递进度' },
+              { icon: '💪', title: '面试备战', desc: '每日出题 + AI 批改 + 错题本' },
+            ].map((f, i) => (
+              <div key={i} className="p-3 bg-slate-50 rounded-lg">
+                <div className="text-2xl mb-1">{f.icon}</div>
+                <div className="font-semibold text-sm">{f.title}</div>
+                <div className="text-xs text-slate-500 mt-0.5">{f.desc}</div>
+              </div>
+            ))}
+          </div>
+          <div className="text-xs text-slate-500 bg-amber-50 p-3 rounded-lg border border-amber-100">
+            💡 所有数据都存在你的浏览器本地，不会上传任何服务器。
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: '怎么称呼你？',
+      content: (
+        <div className="space-y-3">
+          <label className="text-sm text-slate-600">你的昵称</label>
+          <input autoFocus value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })}
+            placeholder="比如：小运"
+            className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <p className="text-xs text-slate-500">Agent 会用这个称呼你，随时可改。</p>
+        </div>
+      ),
+    },
+    {
+      title: '你想找什么岗位？',
+      content: (
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm text-slate-600">主岗位名称</label>
+            <input value={draft.jobTitle} onChange={e => setDraft({ ...draft, jobTitle: e.target.value })}
+              placeholder="例如：产品经理实习"
+              className="w-full mt-1.5 px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
+          <div>
+            <label className="text-sm text-slate-600">搜索关键词（按优先级用顿号分隔）</label>
+            <input value={draft.keywords} onChange={e => setDraft({ ...draft, keywords: e.target.value })}
+              placeholder="例如：AI产品实习、策略产品实习、商业化产品实习"
+              className="w-full mt-1.5 px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            <p className="text-xs text-slate-500 mt-1">越靠前权重越高</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: '想去哪些城市？',
+      content: (
+        <div className="space-y-3">
+          <label className="text-sm text-slate-600">目标城市（按优先级用顿号分隔）</label>
+          <input value={draft.cities} onChange={e => setDraft({ ...draft, cities: e.target.value })}
+            placeholder="例如：上海、杭州、深圳"
+            className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <p className="text-xs text-slate-500">稍后可以在设置里精细调整权重。</p>
+        </div>
+      ),
+    },
+    {
+      title: '你偏好哪些公司？',
+      content: (() => {
+        const POPULAR_COMPANIES = [
+          { name: '字节跳动', tag: '字节系', emoji: '🎵' },
+          { name: '腾讯', tag: '腾讯系', emoji: '🐧' },
+          { name: '阿里巴巴', tag: '阿里系', emoji: '🛒' },
+          { name: '美团', tag: '本地生活', emoji: '🛵' },
+          { name: '小红书', tag: '内容社区', emoji: '📕' },
+          { name: '哔哩哔哩', tag: '内容社区', emoji: '📺' },
+          { name: '百度', tag: '百度系', emoji: '🔍' },
+          { name: '京东', tag: '电商', emoji: '📦' },
+          { name: '拼多多', tag: '电商', emoji: '🧧' },
+          { name: '网易', tag: '网易系', emoji: '🎮' },
+          { name: '快手', tag: '快手系', emoji: '⚡' },
+          { name: '滴滴', tag: '出行', emoji: '🚕' },
+          { name: '携程', tag: '旅游', emoji: '✈️' },
+          { name: '米哈游', tag: '游戏', emoji: '🎲' },
+          { name: '大疆', tag: '硬件', emoji: '🛸' },
+          { name: '蚂蚁集团', tag: '金融科技', emoji: '💳' },
+        ];
+        const CATEGORY_TAGS = [
+          { id: '内容类互联网', label: '📱 内容类互联网', hint: '小红书/B站/抖音/微博等' },
+          { id: 'AI/大模型公司', label: '🤖 AI/大模型公司', hint: '商汤/MiniMax/智谱/月之暗面等' },
+          { id: '电商/零售类', label: '🛍️ 电商/零售类', hint: '京东/拼多多/得物等' },
+          { id: '金融科技类', label: '💰 金融科技类', hint: '同花顺/富途/蚂蚁等' },
+          { id: '游戏公司', label: '🎮 游戏公司', hint: '米哈游/网易游戏/腾讯游戏等' },
+        ];
+
+        return (
+          <div className="space-y-5">
+            <p className="text-xs text-slate-500">勾选你想去的公司，AI 会给它们加分；不想去的也可以拉黑。这一步可以跳过，后续在「求职偏好」里随时改。</p>
+
+            <div>
+              <div className="text-sm font-semibold text-emerald-700 mb-2">❤️ 想去的公司（可多选）</div>
+              <div className="flex flex-wrap gap-1.5">
+                {POPULAR_COMPANIES.map(c => {
+                  const active = draft.liked.includes(c.name);
+                  const disliked = draft.disliked.includes(c.name);
+                  return (
+                    <button key={c.name} onClick={() => toggleLiked(c.name)}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs border transition-all ${
+                        active
+                          ? 'bg-emerald-500 text-white border-emerald-500'
+                          : disliked
+                            ? 'bg-slate-50 text-slate-300 border-slate-200 line-through'
+                            : 'bg-white text-slate-700 border-slate-200 hover:border-emerald-400'
+                      }`}>
+                      {c.emoji} {c.name}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-3">
+                <div className="text-xs text-slate-500 mb-1.5">或按行业大类：</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {CATEGORY_TAGS.map(t => {
+                    const active = draft.liked.includes(t.id);
+                    return (
+                      <button key={t.id} onClick={() => toggleLiked(t.id)}
+                        title={t.hint}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs border transition-all ${
+                          active
+                            ? 'bg-indigo-500 text-white border-indigo-500'
+                            : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-400'
+                        }`}>
+                        {t.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="mt-3 flex gap-2">
+                <input value={draft.likedInput}
+                  onChange={e => setDraft({ ...draft, likedInput: e.target.value })}
+                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addLiked())}
+                  placeholder="自定义输入：公司名或系别（如：喜马拉雅、腾讯系）"
+                  className="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <Button variant="secondary" size="sm" onClick={addLiked}>添加</Button>
+              </div>
+              {draft.liked.filter(l => !POPULAR_COMPANIES.find(c => c.name === l) && !CATEGORY_TAGS.find(t => t.id === l)).length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {draft.liked.filter(l => !POPULAR_COMPANIES.find(c => c.name === l) && !CATEGORY_TAGS.find(t => t.id === l)).map(l => (
+                    <Tag key={l} variant="emerald" onRemove={() => toggleLiked(l)}>{l}</Tag>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-100">
+              <div className="text-sm font-semibold text-rose-700 mb-2">🚫 想拉黑的公司（可选）</div>
+              <div className="flex gap-2">
+                <input value={draft.dislikedInput}
+                  onChange={e => setDraft({ ...draft, dislikedInput: e.target.value })}
+                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addDisliked())}
+                  placeholder="不想去的公司或系别（如：中小型创业公司）"
+                  className="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <Button variant="secondary" size="sm" onClick={addDisliked}>添加</Button>
+              </div>
+              {draft.disliked.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {draft.disliked.map(d => (
+                    <Tag key={d} variant="rose" onRemove={() => toggleDisliked(d)}>{d}</Tag>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })(),
+    },
+    {
+      title: '最后一步：AI 配置',
+      content: (
+        <div className="space-y-4">
+          <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-100">
+            <div className="text-sm font-semibold text-indigo-900 mb-2">🤖 AI 搜岗需要配置一个大模型</div>
+            <div className="text-xs text-indigo-700 space-y-1.5">
+              <div>• <b>推荐：DeepSeek</b>，充 1 块钱能用一个月</div>
+              <div>• 数据 100% 本地存储，Key 不会上传</div>
+              <div>• 稍后在「AI 设置」里完成即可，现在可跳过</div>
+            </div>
+          </div>
+          <div className="text-sm text-slate-600">
+            <div className="font-medium mb-2">完成后你可以：</div>
+            <ul className="space-y-1 text-xs list-disc list-inside">
+              <li>在「AI 设置」填入 API Key</li>
+              <li>在「求职偏好」细化匹配规则</li>
+              <li>在「AI 搜岗」一键搜今日最新岗位</li>
+            </ul>
+          </div>
+        </div>
+      ),
+    },
+  ];
+
+  const current = steps[step];
+  const isLast = step === steps.length - 1;
+  const canNext = step === 1 ? draft.name.trim() : true;
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center p-6 bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-xl border border-slate-100 fade-in">
+        <div className="px-7 py-5 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="text-xl font-bold gradient-text">{current.title}</h2>
+          <div className="text-xs text-slate-400">{step + 1} / {steps.length}</div>
+        </div>
+        <div className="px-7 py-6 min-h-[280px]">{current.content}</div>
+        <div className="px-7 py-4 border-t border-slate-100 flex items-center justify-between">
+          <div className="flex gap-1.5">
+            {steps.map((_, i) => (
+              <div key={i} className={`h-1.5 rounded-full transition-all ${i === step ? 'w-8 bg-indigo-600' : i < step ? 'w-1.5 bg-indigo-300' : 'w-1.5 bg-slate-200'}`} />
+            ))}
+          </div>
+          <div className="flex gap-2">
+            {step > 0 && <Button variant="ghost" onClick={() => setStep(step - 1)}>上一步</Button>}
+            {isLast
+              ? <Button onClick={finish}>开始使用 →</Button>
+              : <Button onClick={() => setStep(step + 1)} disabled={!canNext}>下一步</Button>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =============== 岗位行 ===============
+function JobRow({ job, state, setState, toast }) {
+  const [open, setOpen] = useState(false);
+  const application = state.applications.find(a => a.jobId === job.id);
+
+  const markApplied = () => {
+    if (application) {
+      setState({ ...state, applications: state.applications.filter(a => a.jobId !== job.id) });
+      toast('已取消投递标记', 'info');
+    } else {
+      setState({
+        ...state,
+        applications: [...state.applications, {
+          id: uuid(), jobId: job.id, status: 'applied',
+          appliedAt: new Date().toISOString(), notes: '',
+          history: [{ status: 'applied', at: new Date().toISOString() }],
+        }],
+      });
+      toast('已标记为已投递', 'success');
+    }
+  };
+
+  const removeJob = () => {
+    if (!confirm(`确定删除岗位「${job.title} @ ${job.company}」？`)) return;
+    setState({
+      ...state,
+      jobs: state.jobs.filter(j => j.id !== job.id),
+      applications: state.applications.filter(a => a.jobId !== job.id),
+    });
+    toast('已删除', 'info');
+  };
+
+  const score = job.matchScore || 0;
+  const scoreColor = score >= 85 ? 'text-emerald-600' : score >= 70 ? 'text-indigo-600' : 'text-slate-500';
+
+  return (
+    <>
+      <div className="px-5 py-4 hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => setOpen(true)}>
+        <div className="flex items-start gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-slate-900">{job.title}</span>
+              <span className="text-slate-400">·</span>
+              <span className="text-slate-700">{job.company}</span>
+              {job.department && <span className="text-xs text-slate-500">({job.department})</span>}
+              {application && <Tag variant="amber">已投递</Tag>}
+              {job.isNew && <Tag variant="emerald">新</Tag>}
+            </div>
+            <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500 flex-wrap">
+              {job.city && <span>📍 {job.city}</span>}
+              {job.salary && <span>💰 {job.salary}</span>}
+              {job.duration && <span>⏱️ {job.duration}</span>}
+              {job.workingDays && <span>📅 {job.workingDays}</span>}
+              {job.publishedAt && <span>🕐 {job.publishedAt}</span>}
+            </div>
+            {job.matchReason && <div className="text-xs text-slate-600 mt-1.5 line-clamp-1">💡 {job.matchReason}</div>}
+          </div>
+          <div className="text-right">
+            <div className={`text-lg font-bold ${scoreColor}`}>{score}%</div>
+            <div className="text-xs text-slate-400">匹配度</div>
+          </div>
+        </div>
+      </div>
+
+      <Modal open={open} onClose={() => setOpen(false)} title={`${job.title} @ ${job.company}`} size="lg"
+        footer={<>
+          <Button variant="ghost" onClick={removeJob}>
+            <span className="flex items-center gap-1 text-red-500"><Icon name="trash" className="w-4 h-4" />删除</span>
+          </Button>
+          {job.url && (
+            <Button variant="secondary" onClick={() => window.open(job.url, '_blank')}>
+              <span className="flex items-center gap-1"><Icon name="external" className="w-4 h-4" />打开链接</span>
+            </Button>
+          )}
+          <Button onClick={markApplied} variant={application ? 'secondary' : 'primary'}>
+            {application ? '取消已投递' : '✓ 标记已投递'}
+          </Button>
+        </>}>
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 flex-wrap">
+            {job.department && <Tag>{job.department}</Tag>}
+            {job.city && <Tag variant="indigo">📍 {job.city}</Tag>}
+            {job.salary && <Tag variant="amber">💰 {job.salary}</Tag>}
+            {job.duration && <Tag>⏱️ {job.duration}</Tag>}
+            <Tag variant="emerald">匹配度 {score}%</Tag>
+          </div>
+          {job.matchReason && (
+            <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-lg">
+              <div className="text-xs font-semibold text-indigo-700 mb-1">💡 匹配分析</div>
+              <div className="text-sm text-indigo-900">{job.matchReason}</div>
+            </div>
+          )}
+          <div>
+            <div className="text-sm font-semibold mb-2 text-slate-700">JD 详情</div>
+            <div className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed bg-slate-50 p-4 rounded-lg border border-slate-100">
+              {job.jd || job.summary || '（无详细 JD）'}
+            </div>
+          </div>
+        </div>
+      </Modal>
+    </>
+  );
+}
+
+// =============== 每日播报 ===============
+function Dashboard({ state, setState, toast, onNav }) {
+  const today = formatDate();
+  const todayJobs = state.jobs.filter(j => j.discoveredDate === today);
+  const starJobs = [...state.jobs].sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0)).slice(0, 5);
+
+  const stats = {
+    total: state.jobs.length,
+    today: todayJobs.length,
+    applied: state.applications.filter(a => a.status === 'applied').length,
+    interview: state.applications.filter(a => a.status === 'interview').length,
+    offer: state.applications.filter(a => a.status === 'offer').length,
+  };
+
+  return (
+    <div className="p-8 max-w-6xl mx-auto fade-in">
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <div className="text-sm text-slate-500 mb-1">{today} · {state.profile.name || '同学'}，今天也要加油 ⚽</div>
+          <h1 className="text-3xl font-bold">每日播报</h1>
+        </div>
+        <Button onClick={() => onNav('search')}>
+          <span className="flex items-center gap-1.5">
+            <Icon name="sparkles" className="w-4 h-4" />
+            AI 搜今日新岗
+          </span>
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-5 gap-4 mb-6">
+        {[
+          { label: '岗位库', value: stats.total, color: 'indigo' },
+          { label: '今日新增', value: stats.today, color: 'emerald' },
+          { label: '已投递', value: stats.applied, color: 'amber' },
+          { label: '面试中', value: stats.interview, color: 'purple' },
+          { label: 'Offer', value: stats.offer, color: 'rose' },
+        ].map(s => (
+          <Card key={s.label} className="p-4">
+            <div className="text-xs text-slate-500">{s.label}</div>
+            <div className={`text-2xl font-bold mt-1 text-${s.color}-600`}>{s.value}</div>
+          </Card>
+        ))}
+      </div>
+
+      <Card className="mb-6">
+        <div className="px-5 py-4 border-b border-slate-100">
+          <h2 className="font-semibold text-lg">⭐ 重点关注</h2>
+          <p className="text-xs text-slate-500 mt-0.5">匹配度最高的 5 个岗位</p>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {starJobs.length === 0 ? (
+            <div className="p-10 text-center text-slate-500">
+              <div className="text-4xl mb-3">🔍</div>
+              <div className="text-sm">还没有岗位数据</div>
+              <div className="text-xs text-slate-400 mt-1 mb-4">点击右上角「AI 搜今日新岗」开始</div>
+              <Button variant="secondary" size="sm" onClick={() => onNav('search')}>去搜岗 →</Button>
+            </div>
+          ) : starJobs.map(job => <JobRow key={job.id} job={job} state={state} setState={setState} toast={toast} />)}
+        </div>
+      </Card>
+
+      {todayJobs.length > 0 && (
+        <Card>
+          <div className="px-5 py-4 border-b border-slate-100">
+            <h2 className="font-semibold text-lg">📬 今日新增 ({todayJobs.length})</h2>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {todayJobs.map(job => <JobRow key={job.id} job={job} state={state} setState={setState} toast={toast} />)}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+// =============== AI 搜岗 ===============
+function SearchPage({ state, setState, toast }) {
+  const [loading, setLoading] = useState(false);
+  const [rawResult, setRawResult] = useState('');
+  const [showPrompt, setShowPrompt] = useState(false);
+  const [manualInput, setManualInput] = useState('');
+  const [manualMode, setManualMode] = useState(false);
+  const [progress, setProgress] = useState('');
+
+  const buildPrompt = () => {
+    const { target, company, filters, output } = state;
+    const keywords = target.keywords.map(k => `${k.text}(${k.weight}%)`).join('、');
+    const cities = target.cities.map(c => `${c.text}(${c.weight}%)`).join('、');
+    const excludeCities = target.excludeCities.join('、') || '无';
+    const liked = company.liked.join('、') || '无';
+    const disliked = company.disliked.join('、') || '无';
+
+    return `你是一个专业的求职助手。请帮我搜索符合以下条件的**实习岗位**，并返回 JSON 格式数据。
+
+## 我的求职条件
+**主岗位**：${target.jobTitle}
+**搜索关键词（按权重）**：${keywords}
+**目标城市（按权重）**：${cities}
+**排除城市**：${excludeCities}
+**偏好公司**：${liked}
+**拉黑公司**：${disliked}
+**实习时长上限**：${filters.maxDurationMonths} 个月
+**每周最少到岗**：${filters.minWorkingDays} 天
+**薪资下限**：${filters.minSalary || '不限'} 元/天
+**只看近 ${output.searchLookbackHours} 小时内发布的岗位**
+
+## 要求
+1. 请搜索实习僧、Boss直聘、拉勾、牛客网等平台近期发布的实习岗位
+2. 过滤掉被拉黑的公司，优先展示偏好公司
+3. 过滤掉实习时长超过 ${filters.maxDurationMonths} 个月的岗位
+4. 严格返回 JSON，包含以下字段：title / company / department / city / salary / duration / workingDays / publishedAt / url / jd（JD完整原文） / matchScore（0-100整数）/ matchReason（一句话说明为何这个分数）
+5. 至少返回 ${output.minCount} 个岗位，按 matchScore 从高到低排序
+6. **只返回 JSON 对象 {"jobs":[...]}，不要任何解释文字**
+
+## 输出格式示例
+{
+  "jobs": [
+    {
+      "title": "AI产品经理实习",
+      "company": "字节跳动",
+      "department": "AI Lab",
+      "city": "上海",
+      "salary": "250-300/天",
+      "duration": "至少4个月",
+      "workingDays": "每周4天",
+      "publishedAt": "1天前",
+      "url": "https://...",
+      "jd": "岗位职责：1. ...\\n任职要求：1. ...",
+      "matchScore": 92,
+      "matchReason": "AI产品方向+上海+偏好公司，综合匹配最高"
+    }
+  ]
+}`;
+  };
+
+  const copyPrompt = () => {
+    navigator.clipboard.writeText(buildPrompt());
+    toast('Prompt 已复制，去 AI 里粘贴即可', 'success');
+  };
+
+  const importFromText = (text) => {
+    const parsed = extractJSON(text);
+    if (!parsed) { toast('无法解析返回内容', 'error'); return; }
+    const jobList = Array.isArray(parsed) ? parsed : parsed.jobs || parsed.data || [];
+    if (!jobList.length) { toast('未找到岗位数据', 'error'); return; }
+
+    const existing = new Set(state.jobs.map(j => `${j.title}__${j.company}__${j.department || ''}`));
+    const newJobs = [];
+    const today = formatDate();
+    for (const j of jobList) {
+      const key = `${j.title}__${j.company}__${j.department || ''}`;
+      if (existing.has(key)) continue;
+      existing.add(key);
+      newJobs.push({
+        id: uuid(),
+        title: j.title || '未知岗位',
+        company: j.company || '未知公司',
+        department: j.department || '',
+        city: j.city || '',
+        salary: j.salary || '',
+        duration: j.duration || '',
+        workingDays: j.workingDays || '',
+        publishedAt: j.publishedAt || '',
+        url: j.url || '',
+        jd: j.jd || j.summary || '',
+        summary: j.summary || (j.jd ? j.jd.slice(0, 80) + '…' : ''),
+        matchScore: Math.round(j.matchScore || 70),
+        matchReason: j.matchReason || '',
+        discoveredDate: today,
+        isNew: true,
+      });
+    }
+    if (!newJobs.length) { toast('所有岗位已存在', 'info'); return; }
+    setState({
+      ...state,
+      jobs: [...newJobs, ...state.jobs.map(j => ({ ...j, isNew: false }))],
+      stats: { ...state.stats, totalJobs: state.stats.totalJobs + newJobs.length },
+    });
+    toast(`成功导入 ${newJobs.length} 个新岗位 🎉`, 'success');
+  };
+
+  const runAI = async () => {
+    setLoading(true); setRawResult(''); setProgress('正在请求 AI…');
+    try {
+      const content = await callAI(state, [
+        { role: 'system', content: '你是一个专业的求职助手。严格返回 JSON 格式 {"jobs":[...]}，不要任何解释文字。' },
+        { role: 'user', content: buildPrompt() },
+      ], { json: true, temperature: 0.5 });
+      setRawResult(content);
+      setProgress('解析中…');
+      importFromText(content);
+    } catch (e) {
+      toast(`AI 调用失败: ${e.message}`, 'error');
+    } finally {
+      setLoading(false); setProgress('');
+    }
+  };
+
+  const hasAI = state.ai.apiKey || (state.ai.useShared && state.ai.sharedEndpoint);
+
+  return (
+    <div className="p-8 max-w-4xl mx-auto fade-in">
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold mb-1">AI 搜岗</h1>
+        <p className="text-slate-500">让 AI 帮你实时搜索符合偏好的实习岗位</p>
+      </div>
+
+      {!hasAI && (
+        <Card className="mb-5 p-4 bg-amber-50 border-amber-200">
+          <div className="flex items-start gap-3">
+            <div className="text-2xl">⚠️</div>
+            <div className="flex-1">
+              <div className="font-semibold text-amber-900">AI 尚未配置</div>
+              <div className="text-sm text-amber-800 mt-1">
+                可以先配置 API Key（推荐 DeepSeek，几毛钱用一天），或使用"复制 Prompt"手动到 AI 里搜
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      <Card className="p-6 mb-5">
+        <div className="space-y-4">
+          <div>
+            <div className="text-sm font-semibold text-slate-700 mb-2">本次搜索条件</div>
+            <div className="flex flex-wrap gap-2">
+              <Tag variant="indigo">{state.target.jobTitle}</Tag>
+              {state.target.keywords.slice(0, 4).map(k => <Tag key={k.text}>{k.text}</Tag>)}
+              {state.target.cities.map(c => <Tag key={c.text} variant="emerald">📍 {c.text}</Tag>)}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 pt-2 flex-wrap">
+            <Button onClick={runAI} disabled={loading || !hasAI} size="lg">
+              <span className="flex items-center gap-2">
+                <Icon name="sparkles" className="w-4 h-4" />
+                {loading ? '搜索中…' : '🚀 AI 一键搜岗'}
+              </span>
+            </Button>
+            <Button variant="secondary" onClick={() => setShowPrompt(true)}>预览 Prompt</Button>
+            <Button variant="ghost" onClick={() => setManualMode(!manualMode)}>
+              {manualMode ? '收起手动粘贴' : '手动粘贴结果'}
+            </Button>
+          </div>
+          {progress && <div className="text-sm text-indigo-600">⏳ {progress}</div>}
+        </div>
+      </Card>
+
+      {manualMode && (
+        <Card className="p-5 mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="font-semibold">📥 手动粘贴 AI 结果</div>
+              <div className="text-xs text-slate-500 mt-0.5">把任意 AI 对话中获得的岗位 JSON 粘贴进来</div>
+            </div>
+            <Button size="sm" variant="secondary" onClick={copyPrompt}>复制搜索 Prompt</Button>
+          </div>
+          <textarea value={manualInput} onChange={e => setManualInput(e.target.value)}
+            placeholder='粘贴 AI 返回的 JSON，例如：{"jobs": [{"title": "...", ...}]}'
+            rows={8}
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <div className="mt-3 flex justify-end">
+            <Button onClick={() => { importFromText(manualInput); setManualInput(''); }} disabled={!manualInput.trim()}>
+              导入岗位
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {rawResult && (
+        <Card className="p-5">
+          <div className="text-sm font-semibold mb-2 text-slate-700">AI 原始返回</div>
+          <pre className="text-xs text-slate-600 bg-slate-50 p-3 rounded-lg max-h-60 overflow-y-auto scrollbar-thin whitespace-pre-wrap">{rawResult}</pre>
+        </Card>
+      )}
+
+      <Modal open={showPrompt} onClose={() => setShowPrompt(false)} title="搜索 Prompt 预览" size="lg"
+        footer={<>
+          <Button variant="secondary" onClick={() => setShowPrompt(false)}>关闭</Button>
+          <Button onClick={() => { copyPrompt(); setShowPrompt(false); }}>复制 Prompt</Button>
+        </>}>
+        <pre className="text-xs text-slate-700 whitespace-pre-wrap bg-slate-50 p-4 rounded-lg">{buildPrompt()}</pre>
+      </Modal>
+    </div>
+  );
+}
+
+// =============== 岗位看板 ===============
+function JobsPage({ state, setState, toast }) {
+  const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState('score');
+
+  const filtered = useMemo(() => {
+    let list = [...state.jobs];
+    if (search) {
+      const s = search.toLowerCase();
+      list = list.filter(j =>
+        (j.title || '').toLowerCase().includes(s) ||
+        (j.company || '').toLowerCase().includes(s) ||
+        (j.city || '').toLowerCase().includes(s)
+      );
+    }
+    if (filter !== 'all') {
+      list = list.filter(j => {
+        const app = state.applications.find(a => a.jobId === j.id);
+        if (filter === 'new') return !app && j.isNew;
+        if (filter === 'pending') return !app;
+        if (filter === 'applied') return app && app.status === 'applied';
+        return true;
+      });
+    }
+    if (sortBy === 'score') list.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+    else if (sortBy === 'date') list.sort((a, b) => (b.discoveredDate || '').localeCompare(a.discoveredDate || ''));
+    return list;
+  }, [state, filter, search, sortBy]);
+
+  const filters = [
+    { id: 'all', label: '全部', count: state.jobs.length },
+    { id: 'new', label: '🆕 新发现', count: state.jobs.filter(j => j.isNew && !state.applications.find(a => a.jobId === j.id)).length },
+    { id: 'pending', label: '待处理', count: state.jobs.filter(j => !state.applications.find(a => a.jobId === j.id)).length },
+    { id: 'applied', label: '已投递', count: state.applications.filter(a => a.status === 'applied').length },
+  ];
+
+  const clearAll = () => {
+    if (!confirm('确定清空所有岗位？（不会删除投递记录）')) return;
+    setState({ ...state, jobs: [] });
+    toast('已清空岗位库', 'info');
+  };
+
+  return (
+    <div className="p-8 max-w-6xl mx-auto fade-in">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-3xl font-bold mb-1">岗位看板</h1>
+          <p className="text-slate-500">{state.jobs.length} 个岗位总览</p>
+        </div>
+        <Button variant="danger" size="sm" onClick={clearAll} disabled={!state.jobs.length}>清空岗位</Button>
+      </div>
+
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <div className="flex-1 relative min-w-[240px]">
+          <Icon name="search" className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="搜索岗位/公司/城市…"
+            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+        <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+          className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <option value="score">按匹配度</option>
+          <option value="date">按发现日期</option>
+        </select>
+      </div>
+
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        {filters.map(f => (
+          <button key={f.id} onClick={() => setFilter(f.id)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              filter === f.id ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+            }`}>
+            {f.label} <span className="opacity-70">({f.count})</span>
+          </button>
+        ))}
+      </div>
+
+      <Card>
+        {filtered.length === 0 ? (
+          <div className="p-12 text-center text-slate-500">
+            <div className="text-5xl mb-3">📭</div>
+            <div>没有符合条件的岗位</div>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {filtered.map(job => <JobRow key={job.id} job={job} state={state} setState={setState} toast={toast} />)}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+// =============== 投递管理 ===============
+function TrackerPage({ state, setState, toast }) {
+  const COLS = [
+    { id: 'applied', label: '📮 已投递', color: 'amber' },
+    { id: 'interview', label: '🎤 面试中', color: 'purple' },
+    { id: 'offer', label: '🎉 Offer', color: 'emerald' },
+    { id: 'rejected', label: '❌ 已拒', color: 'rose' },
+  ];
+
+  const updateStatus = (appId, newStatus) => {
+    setState({
+      ...state,
+      applications: state.applications.map(a =>
+        a.id === appId
+          ? { ...a, status: newStatus, history: [...(a.history || []), { status: newStatus, at: new Date().toISOString() }] }
+          : a
+      ),
+    });
+    toast(`已更新为「${COLS.find(c => c.id === newStatus)?.label}」`, 'success');
+  };
+
+  const deleteApp = (appId) => {
+    if (!confirm('确定删除这条投递记录？')) return;
+    setState({ ...state, applications: state.applications.filter(a => a.id !== appId) });
+    toast('已删除', 'info');
+  };
+
+  const getJob = (jobId) => state.jobs.find(j => j.id === jobId);
+
+  return (
+    <div className="p-8 max-w-7xl mx-auto fade-in">
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold mb-1">投递管理</h1>
+        <p className="text-slate-500">看板式追踪每一次投递进度</p>
+      </div>
+
+      <div className="grid grid-cols-4 gap-4">
+        {COLS.map(col => {
+          const items = state.applications.filter(a => a.status === col.id);
+          return (
+            <Card key={col.id} className="flex flex-col max-h-[calc(100vh-200px)]">
+              <div className={`px-4 py-3 border-b border-slate-100 bg-${col.color}-50 rounded-t-xl`}>
+                <div className="font-semibold text-sm">{col.label}</div>
+                <div className="text-xs text-slate-500 mt-0.5">{items.length} 个</div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-thin">
+                {items.length === 0
+                  ? <div className="text-xs text-slate-400 text-center py-6">暂无</div>
+                  : items.map(app => {
+                      const job = getJob(app.jobId);
+                      if (!job) return null;
+                      return (
+                        <div key={app.id} className="p-3 bg-slate-50 rounded-lg border border-slate-100 hover:border-slate-300 transition-colors">
+                          <div className="text-sm font-semibold text-slate-900">{job.title}</div>
+                          <div className="text-xs text-slate-600 mt-0.5">{job.company}</div>
+                          <div className="text-xs text-slate-400 mt-1">{new Date(app.appliedAt).toLocaleDateString()}</div>
+                          <div className="flex items-center gap-1 mt-2">
+                            <select value={app.status} onChange={e => updateStatus(app.id, e.target.value)}
+                              className="flex-1 text-xs px-2 py-1 border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                              {COLS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                            </select>
+                            <button onClick={() => deleteApp(app.id)} className="p-1 text-slate-400 hover:text-red-500">
+                              <Icon name="trash" className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// =============== 面试备战 ===============
+function InterviewPage({ state, setState, toast }) {
+  const [current, setCurrent] = useState(null);
+  const [answer, setAnswer] = useState('');
+  const [grading, setGrading] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [showMistakes, setShowMistakes] = useState(false);
+  const hasAI = state.ai.apiKey || (state.ai.useShared && state.ai.sharedEndpoint);
+
+  const generateQuestion = async () => {
+    if (!hasAI) { toast('请先在「AI 设置」中配置 API Key', 'error'); return; }
+    setLoading(true);
+    try {
+      const recentTitles = state.interview.history.slice(-10).map(q => q.title).join('、');
+      const prompt = `你是一个互联网大厂产品经理面试官。请出 1 道适合「${state.target.jobTitle}」应届生的面试题。
+
+题目类型从以下随机选一：产品思维题 / 数据分析题 / 经历深挖题 / 行业认知题 / 业务场景题。
+${recentTitles ? `\n注意：不要和这些最近出过的题重复：${recentTitles}` : ''}
+
+严格返回 JSON：{"title":"题目标题","type":"类型","question":"完整题目描述","hint":"思考提示（不给答案，2-3句话点到即止）"}`;
+
+      const content = await callAI(state, [
+        { role: 'system', content: '你是资深产品面试官。严格返回 JSON。' },
+        { role: 'user', content: prompt },
+      ], { json: true });
+
+      const q = extractJSON(content);
+      if (!q || !q.question) throw new Error('解析题目失败');
+
+      const newQ = { id: uuid(), ...q, createdAt: new Date().toISOString() };
+      setCurrent(newQ);
+      setAnswer('');
+      setState({
+        ...state,
+        interview: { ...state.interview, history: [...state.interview.history, newQ] },
+      });
+    } catch (e) {
+      toast(`出题失败: ${e.message}`, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const gradeAnswer = async () => {
+    if (!current || !answer.trim()) return;
+    setGrading(true);
+    try {
+      const prompt = `以下是一道产品面试题和候选人的回答，请以大厂面试官的视角给出点评。
+
+【题目】${current.question}
+【候选人回答】${answer}
+
+严格返回 JSON：{"score":1-10的整数,"pros":"答得好的点（2-3条）","cons":"可改进的点（2-3条）","reference":"参考答案思路（给框架即可）"}`;
+
+      const content = await callAI(state, [
+        { role: 'system', content: '你是资深产品面试官，点评犀利但建设性。严格返回 JSON。' },
+        { role: 'user', content: prompt },
+      ], { json: true });
+
+      const grade = extractJSON(content);
+      if (!grade) throw new Error('解析批改失败');
+
+      const graded = { ...current, answer, grade, gradedAt: new Date().toISOString() };
+      setCurrent(graded);
+      setState({
+        ...state,
+        interview: {
+          ...state.interview,
+          history: state.interview.history.map(q => q.id === current.id ? graded : q),
+          mistakes: grade.score < 6
+            ? [...state.interview.mistakes.filter(m => m.id !== current.id), graded]
+            : state.interview.mistakes,
+        },
+      });
+    } catch (e) {
+      toast(`批改失败: ${e.message}`, 'error');
+    } finally {
+      setGrading(false);
+    }
+  };
+
+  return (
+    <div className="p-8 max-w-4xl mx-auto fade-in">
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h1 className="text-3xl font-bold mb-1">面试备战</h1>
+          <p className="text-slate-500">AI 出题 · 即时批改 · 错题本</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => setShowMistakes(true)}>
+            错题本 ({state.interview.mistakes.length})
+          </Button>
+        </div>
+      </div>
+
+      {!current ? (
+        <Card className="p-8 text-center">
+          <div className="text-5xl mb-4">💪</div>
+          <div className="text-xl font-semibold mb-2">今天来几道面试题？</div>
+          <p className="text-sm text-slate-500 mb-6">AI 会针对你的目标岗位出题，回答后即时批改打分</p>
+          <Button onClick={generateQuestion} disabled={loading || !hasAI} size="lg">
+            {loading ? '出题中…' : '🎯 来一道题'}
+          </Button>
+          {!hasAI && <div className="text-xs text-amber-600 mt-3">⚠️ 需先在「AI 设置」配置 API Key</div>}
+          {state.interview.history.length > 0 && (
+            <div className="mt-8 text-left">
+              <div className="text-sm font-semibold text-slate-600 mb-2">最近做过的题</div>
+              <div className="space-y-1.5">
+                {state.interview.history.slice(-5).reverse().map(q => (
+                  <div key={q.id} className="text-sm p-2 bg-slate-50 rounded flex items-center justify-between">
+                    <span className="truncate">{q.title}</span>
+                    {q.grade && (
+                      <span className={`text-xs font-bold ${q.grade.score >= 8 ? 'text-emerald-600' : q.grade.score >= 6 ? 'text-indigo-600' : 'text-rose-600'}`}>
+                        {q.grade.score}/10
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
+      ) : (
+        <Card className="p-6">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <Tag variant="indigo">{current.type}</Tag>
+              <h2 className="text-xl font-bold mt-2">{current.title}</h2>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => { setCurrent(null); setAnswer(''); }}>换一题</Button>
+          </div>
+          <div className="text-slate-700 leading-relaxed whitespace-pre-wrap mb-4">{current.question}</div>
+          {current.hint && !current.grade && (
+            <div className="text-sm text-slate-500 bg-slate-50 p-3 rounded-lg mb-4 border border-slate-100">
+              💭 <b>提示：</b>{current.hint}
+            </div>
+          )}
+
+          {!current.grade ? (
+            <>
+              <textarea value={answer} onChange={e => setAnswer(e.target.value)}
+                placeholder="在这里写下你的回答…" rows={8}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              <div className="mt-3 flex justify-end gap-2">
+                <Button variant="secondary" onClick={() => { setCurrent(null); setAnswer(''); }}>跳过</Button>
+                <Button onClick={gradeAnswer} disabled={grading || !answer.trim()}>
+                  {grading ? '批改中…' : '📝 提交批改'}
+                </Button>
+              </div>
+            </>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className={`text-3xl font-bold ${current.grade.score >= 8 ? 'text-emerald-600' : current.grade.score >= 6 ? 'text-indigo-600' : 'text-rose-600'}`}>
+                  {current.grade.score}/10
+                </div>
+                <div className="text-sm text-slate-500">AI 面试官评分</div>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-lg">
+                <div className="text-xs font-semibold text-slate-600 mb-1">你的回答</div>
+                <div className="text-sm text-slate-700 whitespace-pre-wrap">{current.answer}</div>
+              </div>
+              <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-lg">
+                <div className="text-xs font-semibold text-emerald-700 mb-1">✅ 答得好的点</div>
+                <div className="text-sm text-emerald-900 whitespace-pre-wrap">{current.grade.pros}</div>
+              </div>
+              <div className="p-4 bg-amber-50 border border-amber-100 rounded-lg">
+                <div className="text-xs font-semibold text-amber-700 mb-1">⚠️ 可改进的点</div>
+                <div className="text-sm text-amber-900 whitespace-pre-wrap">{current.grade.cons}</div>
+              </div>
+              <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-lg">
+                <div className="text-xs font-semibold text-indigo-700 mb-1">💡 参考思路</div>
+                <div className="text-sm text-indigo-900 whitespace-pre-wrap">{current.grade.reference}</div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="secondary" onClick={() => { setCurrent(null); setAnswer(''); }}>完成</Button>
+                <Button onClick={() => { setCurrent(null); setAnswer(''); generateQuestion(); }}>下一题 →</Button>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+
+      <Modal open={showMistakes} onClose={() => setShowMistakes(false)} title="错题本" size="lg">
+        {state.interview.mistakes.length === 0 ? (
+          <div className="text-center py-10 text-slate-500">
+            <div className="text-4xl mb-3">🎉</div>
+            <div>暂无错题，继续加油！</div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {state.interview.mistakes.map(m => (
+              <div key={m.id} className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <Tag variant="rose">得分 {m.grade.score}/10</Tag>
+                    <span className="ml-2 font-semibold text-sm">{m.title}</span>
+                  </div>
+                  <button onClick={() => {
+                    setState({ ...state, interview: { ...state.interview, mistakes: state.interview.mistakes.filter(x => x.id !== m.id) } });
+                  }} className="text-xs text-slate-400 hover:text-red-500">移出错题本</button>
+                </div>
+                <div className="text-sm text-slate-700 mb-2">{m.question}</div>
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-indigo-600 hover:text-indigo-700">查看回答和点评</summary>
+                  <div className="mt-2 space-y-2 text-slate-600">
+                    <div><b>你的回答：</b>{m.answer}</div>
+                    <div><b>改进建议：</b>{m.grade.cons}</div>
+                    <div><b>参考思路：</b>{m.grade.reference}</div>
+                  </div>
+                </details>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}
+// =============== 偏好配置页 ===============
+function WeightedList({ items, onChange, placeholder, variant = 'default' }) {
+  const [input, setInput] = useState('');
+  const add = () => {
+    const t = input.trim();
+    if (!t) return;
+    if (items.find(i => i.text === t)) { setInput(''); return; }
+    const n = items.length + 1;
+    const weight = Math.round(100 / n);
+    onChange([...items, { text: t, weight }]);
+    setInput('');
+  };
+  const remove = (text) => onChange(items.filter(i => i.text !== text));
+  const updateWeight = (text, w) => onChange(items.map(i => i.text === text ? { ...i, weight: Math.max(0, Math.min(100, parseInt(w) || 0)) } : i));
+
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <input value={input} onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), add())}
+          placeholder={placeholder}
+          className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        <Button variant="secondary" size="sm" onClick={add}>添加</Button>
+      </div>
+      <div className="space-y-1.5">
+        {items.map(item => (
+          <div key={item.text} className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-lg">
+            <span className="flex-1 text-sm">{item.text}</span>
+            <input type="number" min="0" max="100" value={item.weight}
+              onChange={e => updateWeight(item.text, e.target.value)}
+              className="w-16 px-2 py-1 border border-slate-200 rounded text-xs text-right focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+            <span className="text-xs text-slate-400">%</span>
+            <button onClick={() => remove(item.text)} className="p-1 text-slate-400 hover:text-red-500">
+              <Icon name="x" className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SimpleList({ items, onChange, placeholder }) {
+  const [input, setInput] = useState('');
+  const add = () => {
+    const t = input.trim();
+    if (!t || items.includes(t)) { setInput(''); return; }
+    onChange([...items, t]);
+    setInput('');
+  };
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <input value={input} onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), add())}
+          placeholder={placeholder}
+          className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        <Button variant="secondary" size="sm" onClick={add}>添加</Button>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {items.map(t => (
+          <Tag key={t} onRemove={() => onChange(items.filter(x => x !== t))}>{t}</Tag>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ConfigPage({ state, setState, toast }) {
+  const update = (path, value) => {
+    const parts = path.split('.');
+    const next = JSON.parse(JSON.stringify(state));
+    let cur = next;
+    for (let i = 0; i < parts.length - 1; i++) cur = cur[parts[i]];
+    cur[parts[parts.length - 1]] = value;
+    setState(next);
+  };
+
+  const exportData = () => {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `job_hunt_backup_${formatDate()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('已导出备份', 'success');
+  };
+
+  const importData = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        if (!data.target || !data.ai) throw new Error('文件格式不正确');
+        if (!confirm('导入会覆盖当前所有数据，确定继续？')) return;
+        setState(data);
+        toast('导入成功', 'success');
+      } catch (err) {
+        toast(`导入失败: ${err.message}`, 'error');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const resetAll = () => {
+    if (!confirm('⚠️ 这会清空所有数据（岗位/投递记录/配置），确定继续？')) return;
+    if (!confirm('再次确认：真的要重置吗？此操作不可恢复')) return;
+    localStorage.removeItem(STORAGE_KEY);
+    window.location.reload();
+  };
+
+  return (
+    <div className="p-8 max-w-3xl mx-auto fade-in">
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold mb-1">求职偏好</h1>
+        <p className="text-slate-500">AI 会根据这里的配置为你搜索和筛选岗位</p>
+      </div>
+
+      <div className="space-y-5">
+        {/* 基本信息 */}
+        <Card className="p-5">
+          <div className="font-semibold mb-4">👤 基本信息</div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs text-slate-500">昵称</label>
+              <input value={state.profile.name} onChange={e => update('profile.name', e.target.value)}
+                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">联系邮箱</label>
+              <input value={state.profile.contactEmail} onChange={e => update('profile.contactEmail', e.target.value)}
+                placeholder="xxx@email.com"
+                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+          </div>
+        </Card>
+
+        {/* 目标岗位 */}
+        <Card className="p-5">
+          <div className="font-semibold mb-4">🎯 目标岗位</div>
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs text-slate-500">主岗位名称</label>
+              <input value={state.target.jobTitle} onChange={e => update('target.jobTitle', e.target.value)}
+                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 block mb-2">搜索关键词（权重 %）</label>
+              <WeightedList items={state.target.keywords} onChange={v => update('target.keywords', v)} placeholder="例如：AI产品实习" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 block mb-2">目标城市（权重 %）</label>
+              <WeightedList items={state.target.cities} onChange={v => update('target.cities', v)} placeholder="例如：上海" />
+              <div className="text-xs text-slate-400 mt-1.5">也支持城市组：华东地区城市 / 华北地区城市 / 浙江省内城市 / 其他</div>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 block mb-2">排除城市</label>
+              <SimpleList items={state.target.excludeCities} onChange={v => update('target.excludeCities', v)} placeholder="不想去的城市" />
+            </div>
+          </div>
+        </Card>
+
+        {/* 公司偏好 */}
+        <Card className="p-5">
+          <div className="font-semibold mb-4">🏢 公司偏好</div>
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs text-emerald-700 block mb-2">❤️ 偏好公司（命中加分）</label>
+              <SimpleList items={state.company.liked} onChange={v => update('company.liked', v)} placeholder="公司名、系别(如腾讯系)、类型(如AI/大模型公司)" />
+              <div className="text-xs text-slate-400 mt-1.5">
+                支持：具体公司名 / 系别（腾讯系、阿里系、字节系、百度系、网易系、快手系）/ 类型（内容类互联网、AI/大模型公司、电商/零售类、金融科技类 等）
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-rose-700 block mb-2">🚫 拉黑公司（直接过滤）</label>
+              <SimpleList items={state.company.disliked} onChange={v => update('company.disliked', v)} placeholder="公司名或系别或类型" />
+            </div>
+          </div>
+        </Card>
+
+        {/* 筛选条件 */}
+        <Card className="p-5">
+          <div className="font-semibold mb-4">⚙️ 筛选条件</div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs text-slate-500">实习时长上限（月）</label>
+              <input type="number" value={state.filters.maxDurationMonths} onChange={e => update('filters.maxDurationMonths', parseInt(e.target.value) || 0)}
+                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">每周最少到岗（天）</label>
+              <input type="number" value={state.filters.minWorkingDays} onChange={e => update('filters.minWorkingDays', parseInt(e.target.value) || 0)}
+                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">学历要求（可选）</label>
+              <input value={state.filters.degreeRequirement} onChange={e => update('filters.degreeRequirement', e.target.value)}
+                placeholder="如：本科在读/硕士在读"
+                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">薪资下限（元/天，可选）</label>
+              <input type="number" value={state.filters.minSalary} onChange={e => update('filters.minSalary', e.target.value)}
+                placeholder="留空则不限"
+                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+          </div>
+        </Card>
+
+        {/* 权重排序 */}
+        <Card className="p-5">
+          <div className="font-semibold mb-1">⚖️ 偏好权重</div>
+          <p className="text-xs text-slate-500 mb-4">决定 AI 打分时各维度的重要程度</p>
+          <div className="space-y-3">
+            {[
+              { key: 'job_type', label: '岗位类型匹配' },
+              { key: 'company', label: '公司偏好匹配' },
+              { key: 'city', label: '城市偏好匹配' },
+              { key: 'salary', label: '薪资偏好匹配' },
+            ].map(item => (
+              <div key={item.key} className="flex items-center gap-3">
+                <span className="w-32 text-sm">{item.label}</span>
+                <input type="range" min="0" max="100" value={state.preferencePriority[item.key]}
+                  onChange={e => update(`preferencePriority.${item.key}`, parseInt(e.target.value))}
+                  className="flex-1" />
+                <span className="w-12 text-right text-sm font-semibold text-indigo-600">{state.preferencePriority[item.key]}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        {/* 输出配置 */}
+        <Card className="p-5">
+          <div className="font-semibold mb-4">📤 输出配置</div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs text-slate-500">推送模式</label>
+              <select value={state.output.mode} onChange={e => update('output.mode', e.target.value)}
+                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="stable">稳定模式（至少推送 N 个）</option>
+                <option value="smart">智能模式（宁缺毋滥）</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">每日最少推送数</label>
+              <input type="number" value={state.output.minCount} onChange={e => update('output.minCount', parseInt(e.target.value) || 0)}
+                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">搜索时间范围（小时）</label>
+              <input type="number" value={state.output.searchLookbackHours} onChange={e => update('output.searchLookbackHours', parseInt(e.target.value) || 72)}
+                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">JD 显示模式</label>
+              <select value={state.output.jdDisplayMode} onChange={e => update('output.jdDisplayMode', e.target.value)}
+                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="full_text">完整 JD</option>
+                <option value="summary">AI 摘要</option>
+              </select>
+            </div>
+          </div>
+        </Card>
+
+        {/* 数据管理 */}
+        <Card className="p-5">
+          <div className="font-semibold mb-4">💾 数据管理</div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="secondary" size="sm" onClick={exportData}>
+              <span className="flex items-center gap-1"><Icon name="download" className="w-4 h-4" />导出备份</span>
+            </Button>
+            <label className="inline-flex">
+              <input type="file" accept="application/json" onChange={importData} className="hidden" />
+              <span className="cursor-pointer px-3 py-1.5 text-sm font-medium bg-white border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-50 flex items-center gap-1">
+                <Icon name="upload" className="w-4 h-4" />导入备份
+              </span>
+            </label>
+            <Button variant="danger" size="sm" onClick={resetAll}>重置所有数据</Button>
+          </div>
+          <div className="text-xs text-slate-400 mt-2">所有数据均存储在浏览器本地，清除浏览器缓存会丢失，建议定期导出备份</div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// =============== AI 设置页 ===============
+function AISettingsPage({ state, setState, toast }) {
+  const [testing, setTesting] = useState(false);
+  const [showGuide, setShowGuide] = useState(null);
+  const update = (path, value) => {
+    const parts = path.split('.');
+    const next = JSON.parse(JSON.stringify(state));
+    let cur = next;
+    for (let i = 0; i < parts.length - 1; i++) cur = cur[parts[i]];
+    cur[parts[parts.length - 1]] = value;
+    setState(next);
+  };
+
+  const test = async () => {
+    setTesting(true);
+    try {
+      const res = await callAI(state, [
+        { role: 'user', content: '只回复一个字：好' },
+      ], { temperature: 0 });
+      toast(`✅ AI 调用成功！返回：${res.slice(0, 30)}`, 'success');
+    } catch (e) {
+      toast(`❌ 测试失败：${e.message}`, 'error');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const provider = AI_PROVIDERS[state.ai.provider];
+
+  return (
+    <div className="p-8 max-w-3xl mx-auto fade-in">
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold mb-1">AI 设置</h1>
+        <p className="text-slate-500">配置大模型服务商，用于搜岗和面试备战</p>
+      </div>
+
+      <div className="space-y-5">
+        {/* 服务商选择 */}
+        <Card className="p-5">
+          <div className="font-semibold mb-3">🤖 选择 AI 服务商</div>
+          <div className="grid grid-cols-2 gap-3">
+            {Object.entries(AI_PROVIDERS).map(([key, p]) => (
+              <button key={key} onClick={() => { update('ai.provider', key); update('ai.model', ''); }}
+                className={`p-4 rounded-xl border-2 text-left transition-all ${
+                  state.ai.provider === key
+                    ? 'border-indigo-500 bg-indigo-50'
+                    : 'border-slate-200 bg-white hover:border-slate-300'
+                }`}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-semibold">{p.name}</span>
+                  <Tag variant="indigo">{p.badge}</Tag>
+                </div>
+                <div className="text-xs text-slate-500 mt-1">{p.priceHint}</div>
+              </button>
+            ))}
+          </div>
+        </Card>
+
+        {/* 当前服务商配置 */}
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <div className="font-semibold">⚙️ {provider.name} 配置</div>
+              <div className="text-xs text-slate-500 mt-0.5">{provider.priceHint}</div>
+            </div>
+            <Button variant="secondary" size="sm" onClick={() => setShowGuide(provider)}>📖 获取 Key 指南</Button>
+          </div>
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs text-slate-500">API Key</label>
+              <input type="password" value={state.ai.apiKey}
+                onChange={e => update('ai.apiKey', e.target.value)}
+                placeholder="粘贴你的 API Key，如 sk-xxxxx"
+                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              <div className="text-xs text-slate-400 mt-1">
+                🔒 Key 仅保存在你的浏览器本地，永不上传 ·
+                <a href={provider.keyUrl} target="_blank" rel="noopener" className="text-indigo-600 hover:underline ml-1">去 {provider.name} 获取 Key →</a>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">模型（留空用默认 {provider.defaultModel}）</label>
+              <select value={state.ai.model} onChange={e => update('ai.model', e.target.value)}
+                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="">默认 ({provider.defaultModel})</option>
+                {provider.models.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div className="pt-2">
+              <Button onClick={test} disabled={testing || !state.ai.apiKey}>
+                {testing ? '测试中…' : '🔬 测试连接'}
+              </Button>
+            </div>
+          </div>
+        </Card>
+
+        {/* 共享代理（高级） */}
+        <Card className="p-5">
+          <details>
+            <summary className="cursor-pointer font-semibold">🌐 共享代理配置（高级 / 可选）</summary>
+            <div className="mt-4 space-y-3">
+              <div className="text-xs text-slate-500 bg-slate-50 p-3 rounded-lg">
+                如果你部署了自己的 AI 代理服务（如 Vercel/Cloudflare Worker），可在这里填入 endpoint，启用后将不使用上方的 API Key 直连，而是走你的代理。
+                代理需要接受 POST 请求：<code className="bg-white px-1 rounded">{`{ messages, json, temperature }`}</code>，返回 <code className="bg-white px-1 rounded">{`{ content: "..." }`}</code>。
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={state.ai.useShared} onChange={e => update('ai.useShared', e.target.checked)} />
+                启用共享代理
+              </label>
+              <div>
+                <label className="text-xs text-slate-500">代理 Endpoint</label>
+                <input value={state.ai.sharedEndpoint} onChange={e => update('ai.sharedEndpoint', e.target.value)}
+                  placeholder="https://your-proxy.vercel.app/api/chat"
+                  className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+            </div>
+          </details>
+        </Card>
+      </div>
+
+      <Modal open={!!showGuide} onClose={() => setShowGuide(null)} title={showGuide ? `获取 ${showGuide.name} API Key` : ''} size="md"
+        footer={<Button variant="secondary" onClick={() => setShowGuide(null)}>关闭</Button>}>
+        {showGuide && (
+          <div className="space-y-4">
+            <div className="text-sm text-slate-700">{showGuide.priceHint}</div>
+            <ol className="space-y-2 list-decimal list-inside text-sm text-slate-700">
+              {showGuide.guide.map((step, i) => <li key={i}>{step}</li>)}
+            </ol>
+            <a href={showGuide.keyUrl} target="_blank" rel="noopener"
+              className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:underline">
+              <Icon name="external" className="w-4 h-4" />前往 {showGuide.name} 获取 Key
+            </a>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+// =============== 主入口 ===============
+function App() {
+  const [state, setStateRaw] = useState(loadState);
+  const [page, setPage] = useState('dashboard');
+  const [toastMsg, setToastMsg] = useState({ message: '', type: 'info' });
+
+  const setState = useCallback((next) => {
+    setStateRaw(prev => {
+      const n = typeof next === 'function' ? next(prev) : next;
+      saveState(n);
+      return n;
+    });
+  }, []);
+
+  const toast = useCallback((message, type = 'info') => setToastMsg({ message, type }), []);
+
+  if (!state.onboarded) {
+    return <Onboarding state={state} setState={setState} onDone={() => {}} />;
+  }
+
+  const pages = {
+    dashboard: <Dashboard state={state} setState={setState} toast={toast} onNav={setPage} />,
+    search: <SearchPage state={state} setState={setState} toast={toast} />,
+    jobs: <JobsPage state={state} setState={setState} toast={toast} />,
+    tracker: <TrackerPage state={state} setState={setState} toast={toast} />,
+    interview: <InterviewPage state={state} setState={setState} toast={toast} />,
+    config: <ConfigPage state={state} setState={setState} toast={toast} />,
+    'ai-settings': <AISettingsPage state={state} setState={setState} toast={toast} />,
+  };
+
+  return (
+    <div className="flex min-h-screen">
+      <Sidebar current={page} onNav={setPage} state={state} />
+      <main className="flex-1 overflow-x-hidden">{pages[page]}</main>
+      <Toast message={toastMsg.message} type={toastMsg.type} onClose={() => setToastMsg({ message: '', type: 'info' })} />
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
