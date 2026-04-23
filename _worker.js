@@ -8,7 +8,7 @@
 // ============================================================
 
 // 你的 Worker 后端地址（Service Binding 在边缘节点内部走，不经过公网 DNS）
-const WORKER_HOST = 'https://dxhapi.dingxh0110.workers.dev';
+const WORKER_HOST = 'https://job-hunt-api.dxhapi.workers.dev';
 
 export default {
   async fetch(request, env, ctx) {
