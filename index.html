@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>求职小助 | AI 实习岗位助手 · by AAA刨坑学</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚽</text></svg>" />
-<meta name="description" content="AI 驱动的在校大学生实习求职助手：岗位匹配打分、投递管理看板、面试备战题库。100% 本地存储，隐私友好。" />
+<meta name="description" content="AI 驱动的在校大学生实习求职助手：自动爬取真实岗位、AI 匹配打分、投递管理看板、面试备战题库。" />
 <meta property="og:title" content="求职小助 · AI 实习岗位助手" />
 <meta property="og:description" content="为大学生打造的 AI 求职神器 · AAA刨坑学出品" />
 <script src="https://cdn.tailwindcss.com"></script>
@@ -184,6 +184,51 @@ async function callAI(state, messages, { json = false, temperature = 0.7 } = {})
   return data.choices?.[0]?.message?.content || '';
 }
 
+// =============== 后端 API 层 (v2.2) ===============
+const API_BASE = '/api';  // 同源代理，不走 workers.dev
+
+async function fetchAPI(path, options = {}) {
+  const url = `${API_BASE}${path}`;
+  try {
+    const res = await fetch(url, {
+      ...options,
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`API ${res.status}: ${text.slice(0, 200)}`);
+    }
+    return await res.json();
+  } catch (err) {
+    if (err.message.startsWith('API ')) throw err;
+    throw new Error(`网络错误: ${err.message}`);
+  }
+}
+
+// 拉取后端岗位列表
+async function fetchBackendJobs(params = {}) {
+  const qs = new URLSearchParams();
+  if (params.limit) qs.set('limit', params.limit);
+  if (params.since) qs.set('since', params.since);
+  if (params.city) qs.set('city', params.city);
+  if (params.internType) qs.set('intern_type', params.internType);
+  const query = qs.toString();
+  return fetchAPI(`/jobs${query ? '?' + query : ''}`);
+}
+
+// 拉取后端统计
+async function fetchBackendStats() {
+  return fetchAPI('/stats');
+}
+
+// 健康检查
+async function checkBackendHealth() {
+  try {
+    const data = await fetchAPI('/health');
+    return data.ok === true;
+  } catch { return false; }
+}
+
 // =============== 工具函数 ===============
 function uuid() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -357,7 +402,7 @@ function Sidebar({ current, onNav, state }) {
       <div className="px-3 py-3 border-t border-slate-100 space-y-1">
         <div className="px-3 py-1.5 text-xs text-slate-500">{state.profile.name ? `Hi, ${state.profile.name}` : '匿名用户'}</div>
         <div className="px-3 py-1 text-[10px] text-slate-400 flex items-center justify-between">
-          <span>v2.1</span>
+          <span>v2.2</span>
           <span title="AAA刨坑学 · 自我降解方向">by AAA刨坑学</span>
         </div>
       </div>
@@ -444,7 +489,7 @@ function Onboarding({ state, setState, onDone }) {
             ))}
           </div>
           <div className="text-xs text-slate-500 bg-amber-50 p-3 rounded-lg border border-amber-100">
-            💡 所有数据都存在你的浏览器本地，不会上传任何服务器。
+            💡 偏好设置和投递记录存在你的浏览器本地。岗位数据由后端每 2 小时自动从微信公众号文章抓取更新。
           </div>
         </div>
       ),
@@ -706,6 +751,8 @@ function JobRow({ job, state, setState, toast }) {
               <span className="text-slate-700">{job.company}</span>
               {job.department && <span className="text-xs text-slate-500">({job.department})</span>}
               {job.internType === 'summer' ? <Tag variant="rose">🌞 暑期</Tag> : <Tag variant="indigo">📅 日常</Tag>}
+              {job.source === 'backend' && <Tag variant="emerald">🌐 真实</Tag>}
+              {job.source === 'manual' && <Tag variant="amber">📋 手动</Tag>}
               {application && <Tag variant="amber">已投递</Tag>}
               {job.isNew && <Tag variant="emerald">新</Tag>}
             </div>
@@ -766,7 +813,12 @@ function JobRow({ job, state, setState, toast }) {
             </div>
           )}
           <div className="p-3 bg-amber-50 border border-amber-100 rounded-lg text-xs text-amber-800">
-            ⚠️ <b>注意</b>：AI 生成的是"岗位参考线索"，不是今天实时发布的岗位。点击右下角「去招聘平台搜」可在实习僧/Boss/牛客等平台查找该公司的真实在招岗位。
+            {job.source === 'backend'
+              ? <>✅ <b>真实岗位</b>：来自搜狗微信公众号文章的自动爬取，信息可能不完整，建议点右下角「去招聘平台搜」确认详情。</>
+              : job.source === 'manual'
+                ? <>📋 <b>手动导入</b>：你从招聘平台粘贴的真实 JD。</>
+                : <>⚠️ <b>注意</b>：AI 生成的是"岗位参考线索"，不是今天实时发布的岗位。点击右下角「去招聘平台搜」可在实习僧/Boss/牛客等平台查找该公司的真实在招岗位。</>
+            }
           </div>
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -789,7 +841,37 @@ function Dashboard({ state, setState, toast, onNav }) {
   const todayJobs = state.jobs.filter(j => j.discoveredDate === today);
   const starJobs = [...state.jobs].sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0)).slice(0, 5);
 
-  const stats = {
+  // 后端真实数据
+  const [backendOnline, setBackendOnline] = useState(null); // null=检测中, true/false
+  const [backendStats, setBackendStats] = useState(null);
+  const [backendJobs, setBackendJobs] = useState([]);
+  const [loadingBackend, setLoadingBackend] = useState(false);
+
+  // 启动时检测后端并拉数据
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoadingBackend(true);
+      try {
+        const online = await checkBackendHealth();
+        if (cancelled) return;
+        setBackendOnline(online);
+        if (online) {
+          const [statsData, jobsData] = await Promise.all([
+            fetchBackendStats().catch(() => null),
+            fetchBackendJobs({ limit: 50 }).catch(() => ({ jobs: [] })),
+          ]);
+          if (cancelled) return;
+          setBackendStats(statsData);
+          setBackendJobs(jobsData.jobs || []);
+        }
+      } catch { if (!cancelled) setBackendOnline(false); }
+      finally { if (!cancelled) setLoadingBackend(false); }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const localStats = {
     total: state.jobs.length,
     today: todayJobs.length,
     applied: state.applications.filter(a => a.status === 'applied').length,
@@ -797,24 +879,115 @@ function Dashboard({ state, setState, toast, onNav }) {
     offer: state.applications.filter(a => a.status === 'offer').length,
   };
 
+  // 合并统计：后端真实岗位 + 本地 AI 岗位
+  const stats = {
+    realJobs: backendStats ? backendStats.jobs : 0,
+    articles: backendStats ? backendStats.articles : 0,
+    localJobs: state.jobs.length,
+    today: todayJobs.length,
+    applied: localStats.applied,
+    interview: localStats.interview,
+    offer: localStats.offer,
+  };
+
+  // 把后端岗位一键导入本地
+  const importBackendJobs = () => {
+    if (!backendJobs.length) return;
+    const existing = new Set(state.jobs.map(j => `${j.title}__${j.company}__${j.department || ''}`));
+    const newJobs = [];
+    for (const j of backendJobs) {
+      const key = `${j.title}__${j.company}__${j.department || ''}`;
+      if (existing.has(key)) continue;
+      existing.add(key);
+      newJobs.push({
+        id: j.id || uuid(),
+        title: j.title || '未知岗位',
+        company: j.company || '未知公司',
+        department: j.department || '',
+        city: j.city || '',
+        salary: j.salary || '',
+        duration: j.duration || '',
+        workingDays: j.working_days || '',
+        internType: j.intern_type === 'summer' ? 'summer' : 'daily',
+        publishedAt: j.published_at || '',
+        url: j.source_url || '',
+        jd: j.jd || '',
+        summary: j.jd ? j.jd.slice(0, 80) + '…' : '',
+        matchScore: 0,
+        matchReason: '',
+        discoveredDate: today,
+        isNew: true,
+        source: 'backend',
+      });
+    }
+    if (!newJobs.length) { toast('所有后端岗位已存在于本地', 'info'); return; }
+    setState({
+      ...state,
+      jobs: [...newJobs, ...state.jobs.map(j => ({ ...j, isNew: false }))],
+      stats: { ...state.stats, totalJobs: state.stats.totalJobs + newJobs.length },
+    });
+    toast(`✅ 成功从后端导入 ${newJobs.length} 个真实岗位`, 'success');
+  };
+
+  // 后端连接状态指示器
+  const StatusDot = () => {
+    if (backendOnline === null) return <span className="inline-block w-2 h-2 rounded-full bg-slate-300 animate-pulse" title="检测中…" />;
+    if (backendOnline) return <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" title="后端在线" />;
+    return <span className="inline-block w-2 h-2 rounded-full bg-red-400" title="后端离线" />;
+  };
+
   return (
     <div className="p-8 max-w-6xl mx-auto fade-in">
       <div className="flex items-start justify-between mb-6">
         <div>
-          <div className="text-sm text-slate-500 mb-1">{today} · {state.profile.name || '同学'}，今天也要加油 ⚽</div>
+          <div className="text-sm text-slate-500 mb-1 flex items-center gap-2">
+            {today} · {state.profile.name || '同学'}，今天也要加油 ⚽
+            <StatusDot />
+            <span className="text-xs">{backendOnline === true ? '数据源在线' : backendOnline === false ? '数据源离线' : '检测中…'}</span>
+          </div>
           <h1 className="text-3xl font-bold">每日播报</h1>
         </div>
-        <Button onClick={() => onNav('search')}>
-          <span className="flex items-center gap-1.5">
-            <Icon name="sparkles" className="w-4 h-4" />
-            AI 搜今日新岗
-          </span>
-        </Button>
+        <div className="flex gap-2">
+          {backendOnline && backendJobs.length > 0 && (
+            <Button variant="success" onClick={importBackendJobs}>
+              <span className="flex items-center gap-1.5">📥 导入 {backendJobs.length} 个真实岗位</span>
+            </Button>
+          )}
+          <Button onClick={() => onNav('search')}>
+            <span className="flex items-center gap-1.5">
+              <Icon name="sparkles" className="w-4 h-4" />
+              AI 搜今日新岗
+            </span>
+          </Button>
+        </div>
       </div>
+
+      {/* 后端数据源卡片 */}
+      {backendOnline && backendStats && (
+        <Card className="mb-6 p-4 bg-gradient-to-r from-emerald-50 to-indigo-50 border-emerald-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-semibold text-emerald-800 flex items-center gap-1.5">
+                🌐 后端自动爬取（搜狗微信 · 每 2 小时更新）
+              </div>
+              <div className="text-xs text-slate-600 mt-1">
+                已抓取 <b>{backendStats.articles}</b> 篇文章 · 提取 <b>{backendStats.jobs}</b> 个真实岗位
+                {backendStats.last_run && (
+                  <span> · 上次运行 {new Date(backendStats.last_run.started_at).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
+                )}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-2xl font-bold text-emerald-600">{backendStats.jobs}</div>
+              <div className="text-xs text-slate-500">真实岗位</div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <div className="grid grid-cols-5 gap-4 mb-6">
         {[
-          { label: '岗位库', value: stats.total, color: 'indigo' },
+          { label: '本地岗位库', value: stats.localJobs, color: 'indigo' },
           { label: '今日新增', value: stats.today, color: 'emerald' },
           { label: '已投递', value: stats.applied, color: 'amber' },
           { label: '面试中', value: stats.interview, color: 'purple' },
@@ -827,17 +1000,68 @@ function Dashboard({ state, setState, toast, onNav }) {
         ))}
       </div>
 
+      {/* 后端真实岗位预览 */}
+      {backendOnline && backendJobs.length > 0 && (
+        <Card className="mb-6">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <h2 className="font-semibold text-lg">🌐 后端抓取的真实岗位</h2>
+              <p className="text-xs text-slate-500 mt-0.5">来自搜狗微信公众号文章，AI 提取的真实岗位信息</p>
+            </div>
+            <Button variant="secondary" size="sm" onClick={importBackendJobs}>全部导入本地</Button>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {backendJobs.slice(0, 10).map(job => (
+              <div key={job.id} className="px-5 py-4 hover:bg-slate-50">
+                <div className="flex items-start gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-slate-900">{job.title}</span>
+                      <span className="text-slate-400">·</span>
+                      <span className="text-slate-700">{job.company}</span>
+                      <Tag variant="emerald">🌐 真实</Tag>
+                      {job.intern_type === 'summer' ? <Tag variant="rose">🌞 暑期</Tag> : <Tag variant="indigo">📅 日常</Tag>}
+                    </div>
+                    <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500 flex-wrap">
+                      {job.city && <span>📍 {job.city}</span>}
+                      {job.salary && <span>💰 {job.salary}</span>}
+                      {job.crawled_at && <span>🕐 抓取于 {new Date(job.crawled_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>}
+                    </div>
+                    {job.jd && <div className="text-xs text-slate-600 mt-1.5 line-clamp-2">{job.jd.slice(0, 120)}…</div>}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {backendJobs.length > 10 && (
+              <div className="px-5 py-3 text-center text-xs text-slate-500">
+                还有 {backendJobs.length - 10} 个岗位，点击「全部导入本地」查看完整列表
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {loadingBackend && (
+        <Card className="mb-6 p-6 text-center">
+          <div className="text-slate-500 text-sm">⏳ 正在连接后端数据源…</div>
+        </Card>
+      )}
+
       <Card className="mb-6">
         <div className="px-5 py-4 border-b border-slate-100">
           <h2 className="font-semibold text-lg">⭐ 重点关注</h2>
-          <p className="text-xs text-slate-500 mt-0.5">匹配度最高的 5 个岗位</p>
+          <p className="text-xs text-slate-500 mt-0.5">匹配度最高的 5 个岗位（本地）</p>
         </div>
         <div className="divide-y divide-slate-100">
           {starJobs.length === 0 ? (
             <div className="p-10 text-center text-slate-500">
               <div className="text-4xl mb-3">🔍</div>
               <div className="text-sm">还没有岗位数据</div>
-              <div className="text-xs text-slate-400 mt-1 mb-4">点击右上角「AI 搜今日新岗」开始</div>
+              <div className="text-xs text-slate-400 mt-1 mb-4">
+                {backendOnline && backendJobs.length > 0
+                  ? '点击上方「导入真实岗位」或右上角「AI 搜今日新岗」开始'
+                  : '点击右上角「AI 搜今日新岗」开始'}
+              </div>
               <Button variant="secondary" size="sm" onClick={() => onNav('search')}>去搜岗 →</Button>
             </div>
           ) : starJobs.map(job => <JobRow key={job.id} job={job} state={state} setState={setState} toast={toast} />)}
@@ -1161,7 +1385,7 @@ ${pasteJD}
             </div>
 
             <div className="p-3 bg-amber-50 border border-amber-100 rounded-lg text-xs text-amber-800">
-              💡 <b>说明</b>：AI 离线无法实时搜招聘网站，这里生成的是"岗位参考线索"——基于训练数据告诉你这些公司往年通常招什么方向。查到感兴趣的公司后，点岗位详情里的「去招聘平台搜」获取真实在招岗位。
+              💡 <b>说明</b>：AI 离线无法实时搜招聘网站，这里生成的是"岗位参考线索"。<b>真实岗位数据在「每日播报」页自动抓取展示</b>。查到感兴趣的公司后，点岗位详情里的「去招聘平台搜」获取真实在招岗位。
             </div>
 
             <div className="flex items-center gap-2 pt-2 flex-wrap">
