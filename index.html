@@ -7,7 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚽</text></svg>" />
 <meta name="description" content="AI 实习岗位管家：每天自动聚合真实实习岗位 · AI 帮你从上千个岗位里精准推荐最适合的几个 · 真实面经题库带思考大纲。" />
 <meta property="og:title" content="求职小助 · AI 实习岗位管家" />
-<meta property="og:description" content="AI 帮你从上千个真实岗位里挑出为你量身定制的那几个 · by dxh 同学" />
+<meta property="og:description" content="AI 每天聚合真实岗位，为你精准匹配最适合的那几个 · by dxh 同学" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
@@ -491,7 +491,7 @@ function Onboarding({ state, setState, onDone }) {
       title: 'AI 实习岗位管家 ⚽',
       content: (
         <div className="space-y-4">
-          <p className="text-slate-600 leading-relaxed">不用你自己找岗位——<b>AI 帮你从几百个岗位里，挑出为你量身定制的那几个。</b></p>
+          <p className="text-slate-600 leading-relaxed">不用你自己找岗位——<b>AI 每天聚合真实岗位，为你精准匹配最适合的那几个。</b></p>
           <div className="grid grid-cols-2 gap-3">
             {[
               { icon: '🌐', title: '真实岗位库', desc: 'AI 每 2 小时自动聚合公众号真实岗位' },
@@ -2970,8 +2970,8 @@ function AdminPage({ state, setState, toast }) {
     if (running) return;
     setRunning(true);
     try {
-      addLog('⏳ 正在处理下一批（batchSize=3）…');
-      const r = await adminCall('/admin/crawl-stage2', { batchSize: 3 });
+      addLog('⏳ 正在处理下一批（batchSize=2）…');
+      const r = await adminCall('/admin/crawl-stage2', { batchSize: 2 });
       addLog(`✅ 本批处理 ${r.processed} 篇，抽出 ${r.jobsExtracted} 个岗位`, 'success');
       await refreshStats();
       return r;
@@ -2993,17 +2993,32 @@ function AdminPage({ state, setState, toast }) {
     }
     autoRef.current = true;
     setAutoRunning(true);
-    addLog('▶️ 开始自动循环处理…');
+    addLog('▶️ 开始自动循环处理（每批 2 篇，出错自动重试）…');
     let batchCount = 0;
+    let consecutiveErrors = 0;
     try {
       while (autoRef.current) {
         batchCount++;
-        const r = await adminCall('/admin/crawl-stage2', { batchSize: 3 });
-        addLog(`  批 #${batchCount}：${r.processed} 篇 → ${r.jobsExtracted} 个岗位`, 'success');
-        await refreshStats();
-        if (r.processed === 0) {
-          addLog('🎉 所有文章已处理完成！', 'success');
-          break;
+        try {
+          const r = await adminCall('/admin/crawl-stage2', { batchSize: 2 });
+          consecutiveErrors = 0;
+          const q = r.questionsExtracted ? `/ ${r.questionsExtracted} 道面经` : '';
+          addLog(`  批 #${batchCount}：${r.processed} 篇 → ${r.jobsExtracted} 个岗位 ${q}`, 'success');
+          await refreshStats();
+          if (r.processed === 0) {
+            addLog('🎉 所有文章已处理完成！', 'success');
+            break;
+          }
+        } catch (e) {
+          consecutiveErrors++;
+          addLog(`  批 #${batchCount} 失败(${consecutiveErrors}/3)：${e.message.slice(0, 60)}`, 'error');
+          if (consecutiveErrors >= 3) {
+            addLog('❌ 连续 3 次失败，已停止。请稍后重试', 'error');
+            break;
+          }
+          // 出错后等待更久（Cloudflare 可能在限流）
+          await new Promise(r => setTimeout(r, 5000));
+          continue;
         }
         await new Promise(r => setTimeout(r, 2000));
       }
