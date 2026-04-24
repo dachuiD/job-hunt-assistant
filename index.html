@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>求职小助 | AI 实习岗位助手 · by AAA刨坑学</title>
+<title>求职小助 | 你的 AI 求职 Copilot · by AAA刨坑学</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚽</text></svg>" />
-<meta name="description" content="AI 驱动的在校大学生实习求职助手：自动爬取真实岗位、AI 匹配打分、投递管理看板、面试备战题库。" />
-<meta property="og:title" content="求职小助 · AI 实习岗位助手" />
-<meta property="og:description" content="为大学生打造的 AI 求职神器 · AAA刨坑学出品" />
+<meta name="description" content="你的 AI 求职 Copilot：AI 每天自动聚合真实实习岗位 · 帮你从几百个岗位里精准推荐最适合的几个 · 真实面经题库带思考大纲。" />
+<meta property="og:title" content="求职小助 · AI 求职 Copilot" />
+<meta property="og:description" content="AI 帮你从几百个真实岗位里挑出为你量身定制的那几个 · AAA刨坑学出品" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
@@ -74,9 +74,13 @@ const defaultState = {
     searchLookbackHours: 72,
   },
   ai: {
-    provider: 'deepseek',
+    // 简化后：只需 endpoint + apiKey + model（OpenAI 兼容格式）
+    endpoint: 'https://api.deepseek.com/chat/completions',
     apiKey: '',
-    model: '',
+    model: 'deepseek-chat',
+    preferCustom: false,  // 若为 true 则直接用自配 Key（跳过免费额度）
+    // 兼容字段（旧版本迁移用）
+    provider: 'deepseek',
     useShared: false,
     sharedEndpoint: '',
   },
@@ -108,70 +112,49 @@ function loadState() {
 function saveState(s) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch (e) { console.error(e); } }
 
 // =============== AI 服务层 ===============
-const AI_PROVIDERS = {
-  deepseek: {
-    name: 'DeepSeek', badge: '推荐 · 便宜',
-    endpoint: 'https://api.deepseek.com/chat/completions',
-    defaultModel: 'deepseek-chat',
-    models: ['deepseek-chat', 'deepseek-reasoner'],
-    keyUrl: 'https://platform.deepseek.com/api_keys',
-    priceHint: '约 ¥0.001/千 token，一天几毛钱',
-    guide: [
-      '打开 platform.deepseek.com 注册账号',
-      '左侧"充值"充 1~5 元即可用很久',
-      '左侧"API Keys" → 创建新密钥 → 复制 sk-xxxxx',
-      '粘贴到下方"API Key"输入框',
-    ],
-  },
-  kimi: {
-    name: 'Kimi (月之暗面)', badge: '新人免费额度',
-    endpoint: 'https://api.moonshot.cn/v1/chat/completions',
-    defaultModel: 'moonshot-v1-8k',
-    models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
-    keyUrl: 'https://platform.moonshot.cn/console/api-keys',
-    priceHint: '新用户送 15 元免费额度',
-    guide: ['访问 platform.moonshot.cn 注册', '进入"API Key 管理"', '创建新密钥并复制', '粘贴到下方输入框'],
-  },
-  openai: {
-    name: 'OpenAI', badge: '效果最强',
-    endpoint: 'https://api.openai.com/v1/chat/completions',
-    defaultModel: 'gpt-4o-mini',
-    models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo'],
-    keyUrl: 'https://platform.openai.com/api-keys',
-    priceHint: 'gpt-4o-mini 约 ¥0.01/次',
-    guide: ['需要海外信用卡注册', '访问 platform.openai.com/api-keys', '创建 secret key', '国内可能需配置代理'],
-  },
-  qwen: {
-    name: '通义千问 (阿里)', badge: '国内稳定',
-    endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
-    defaultModel: 'qwen-plus',
-    models: ['qwen-turbo', 'qwen-plus', 'qwen-max'],
-    keyUrl: 'https://bailian.console.aliyun.com/',
-    priceHint: 'qwen-turbo 约 ¥0.003/千 token',
-    guide: ['登录阿里云百炼控制台', '获取 API-KEY', '粘贴到下方输入框'],
-  },
-};
+// 简化：用户自配模型只需要填 endpoint + apiKey + model（OpenAI 兼容格式）
+// 优先用后端免费额度，超额或失败时回退到用户自配 Key
 
-async function callAI(state, messages, { json = false, temperature = 0.7 } = {}) {
-  const { ai } = state;
-  if (ai.useShared && ai.sharedEndpoint) {
-    const res = await fetch(ai.sharedEndpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, json, temperature }),
-    });
-    if (!res.ok) throw new Error(`共享代理请求失败: ${res.status}`);
-    const data = await res.json();
-    return data.content || data.choices?.[0]?.message?.content || '';
+// 生成浏览器指纹（用于免费额度限流）
+function getUserId() {
+  let id = localStorage.getItem('user_fingerprint');
+  if (!id) {
+    // 随机 16 字节 hex
+    const arr = new Uint8Array(16);
+    crypto.getRandomValues(arr);
+    id = Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+    localStorage.setItem('user_fingerprint', id);
   }
-  const provider = AI_PROVIDERS[ai.provider];
-  if (!provider) throw new Error('未知 AI 服务商');
-  if (!ai.apiKey) throw new Error('请先在「AI 设置」中配置 API Key');
+  return id;
+}
 
-  const body = { model: ai.model || provider.defaultModel, messages, temperature };
+// 调用后端免费 AI 代理
+async function callFreeAI(messages, { json = false, temperature = 0.5 } = {}) {
+  const userId = getUserId();
+  const res = await fetch('/api/ai/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages, json, temperature, user_id: userId }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    const err = new Error(data.message || data.error || `API ${res.status}`);
+    err.code = data.error;
+    err.quota = data;
+    throw err;
+  }
+  return { content: data.content, quota: data.quota };
+}
+
+// 调用用户自配的 OpenAI 兼容 API
+async function callCustomAI(state, messages, { json = false, temperature = 0.5 } = {}) {
+  const { ai } = state;
+  if (!ai.apiKey) throw new Error('请先在「AI 设置」配置 API Key');
+  const endpoint = ai.endpoint || 'https://api.deepseek.com/chat/completions';
+  const model = ai.model || 'deepseek-chat';
+  const body = { model, messages, temperature };
   if (json) body.response_format = { type: 'json_object' };
-
-  const res = await fetch(provider.endpoint, {
+  const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ai.apiKey}` },
     body: JSON.stringify(body),
@@ -181,7 +164,37 @@ async function callAI(state, messages, { json = false, temperature = 0.7 } = {})
     throw new Error(`AI 请求失败 (${res.status}): ${text.slice(0, 200)}`);
   }
   const data = await res.json();
-  return data.choices?.[0]?.message?.content || '';
+  return { content: data.choices?.[0]?.message?.content || '', quota: null };
+}
+
+// 统一入口：优先免费，超额后回退自配
+async function callAI(state, messages, opts = {}) {
+  const preferCustom = state.ai?.preferCustom && state.ai?.apiKey;
+  if (preferCustom) {
+    // 用户选择了优先用自己的 Key
+    const r = await callCustomAI(state, messages, opts);
+    return r.content;
+  }
+  try {
+    const r = await callFreeAI(messages, opts);
+    return r.content;
+  } catch (e) {
+    if (e.code === 'quota_exceeded' && state.ai?.apiKey) {
+      // 配额用完自动回退自配
+      const r = await callCustomAI(state, messages, opts);
+      return r.content;
+    }
+    throw e;
+  }
+}
+
+// 获取当前剩余额度
+async function fetchQuota() {
+  try {
+    const res = await fetch(`/api/ai/quota?user_id=${getUserId()}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
 }
 
 // =============== 后端 API 层 (v2.2) ===============
@@ -368,11 +381,11 @@ function Toast({ message, type, onClose }) {
 
 function Sidebar({ current, onNav, state }) {
   const items = [
-    { id: 'dashboard', label: '每日播报', icon: 'home' },
-    { id: 'search', label: 'AI 搜岗', icon: 'sparkles' },
+    { id: 'dashboard', label: '今日推荐', icon: 'home' },
+    { id: 'search', label: '发现岗位', icon: 'sparkles' },
     { id: 'jobs', label: '岗位看板', icon: 'folder', badge: state.jobs.length || null },
     { id: 'tracker', label: '投递管理', icon: 'clipboard' },
-    { id: 'interview', label: '面试备战', icon: 'book' },
+    { id: 'interview', label: '面试题库', icon: 'book' },
     { id: 'config', label: '求职偏好', icon: 'settings' },
     { id: 'ai-settings', label: 'AI 设置', icon: 'brain' },
     { id: 'admin', label: '🔧 管理面板', icon: 'settings' },
@@ -471,16 +484,16 @@ function Onboarding({ state, setState, onDone }) {
 
   const steps = [
     {
-      title: '欢迎使用求职小助 ⚽',
+      title: '你的 AI 求职 Copilot ⚽',
       content: (
         <div className="space-y-4">
-          <p className="text-slate-600 leading-relaxed">这是一个为在校大学生打造的 AI 实习求职助手。你只需要告诉它你的偏好，它会：</p>
+          <p className="text-slate-600 leading-relaxed">不用你自己找岗位——<b>AI 帮你从几百个岗位里，挑出为你量身定制的那几个。</b></p>
           <div className="grid grid-cols-2 gap-3">
             {[
-              { icon: '🎯', title: '精准筛岗', desc: '基于关键词/城市/公司多维度打分' },
-              { icon: '🤖', title: 'AI 搜索', desc: '联网实时搜索最新实习岗位' },
-              { icon: '📋', title: '投递管理', desc: '看板式追踪每一次投递进度' },
-              { icon: '💪', title: '面试备战', desc: '每日出题 + AI 批改 + 错题本' },
+              { icon: '🌐', title: '真实岗位库', desc: 'AI 每 2 小时自动聚合公众号真实岗位' },
+              { icon: '🎯', title: 'AI 精准匹配', desc: '基于你的偏好给每个岗位打分排序' },
+              { icon: '📝', title: '真实面经题库', desc: '大厂面试真题带思考大纲（不代替你思考）' },
+              { icon: '📋', title: '投递全流程', desc: '从发现岗位到拿 Offer 全程追踪' },
             ].map((f, i) => (
               <div key={i} className="p-3 bg-slate-50 rounded-lg">
                 <div className="text-2xl mb-1">{f.icon}</div>
@@ -489,8 +502,8 @@ function Onboarding({ state, setState, onDone }) {
               </div>
             ))}
           </div>
-          <div className="text-xs text-slate-500 bg-amber-50 p-3 rounded-lg border border-amber-100">
-            💡 偏好设置和投递记录存在你的浏览器本地。岗位数据由后端每 2 小时自动从微信公众号文章抓取更新。
+          <div className="text-xs text-slate-500 bg-emerald-50 p-3 rounded-lg border border-emerald-100">
+            ✨ <b>AI 额度免费送</b>：每天 20 次免费调用，不用配 API 也能体验。超出后可配自己的 Key。
           </div>
         </div>
       ),
@@ -651,24 +664,25 @@ function Onboarding({ state, setState, onDone }) {
       })(),
     },
     {
-      title: '最后一步：AI 配置',
+      title: '准备就绪！开始使用 🚀',
       content: (
         <div className="space-y-4">
-          <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-100">
-            <div className="text-sm font-semibold text-indigo-900 mb-2">🤖 AI 搜岗需要配置一个大模型</div>
-            <div className="text-xs text-indigo-700 space-y-1.5">
-              <div>• <b>推荐：DeepSeek</b>，充 1 块钱能用一个月</div>
-              <div>• 数据 100% 本地存储，Key 不会上传</div>
-              <div>• 稍后在「AI 设置」里完成即可，现在可跳过</div>
+          <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+            <div className="text-sm font-semibold text-emerald-900 mb-2">🎁 你已获得每日 20 次免费 AI 额度</div>
+            <div className="text-xs text-emerald-800 space-y-1.5">
+              <div>• 匹配打分、JD 解析、面试批改都直接能用，<b>不用配 API Key</b></div>
+              <div>• 每天 0 点刷新额度</div>
+              <div>• 超出额度后可在「AI 设置」配自己的 Key 继续使用</div>
             </div>
           </div>
           <div className="text-sm text-slate-600">
-            <div className="font-medium mb-2">完成后你可以：</div>
-            <ul className="space-y-1 text-xs list-disc list-inside">
-              <li>在「AI 设置」填入 API Key</li>
-              <li>在「求职偏好」细化匹配规则</li>
-              <li>在「AI 搜岗」一键搜今日最新岗位</li>
-            </ul>
+            <div className="font-medium mb-2">建议的使用流程：</div>
+            <ol className="space-y-1.5 text-xs list-decimal list-inside text-slate-700">
+              <li>去「今日推荐」看 AI 为你精选的岗位</li>
+              <li>在「发现岗位」浏览所有真实岗位或粘贴 JD 解析</li>
+              <li>在「面试题库」看大厂真题带思考大纲</li>
+              <li>投递后在「投递管理」看板追踪进度</li>
+            </ol>
           </div>
         </div>
       ),
@@ -1031,17 +1045,90 @@ function BackendJobCard({ job, state, setState, toast }) {
   );
 }
 
-// =============== 每日播报 ===============
+// =============== 本地匹配打分算法 ===============
+// 在前端对后端岗位做快速打分，不消耗 AI 额度
+function scoreBackendJob(job, prefs) {
+  const { target, company } = prefs;
+  const keywords = target.keywords || [];
+  const cities = target.cities || [];
+  const liked = company.liked || [];
+  const disliked = company.disliked || [];
+
+  // 拉黑公司直接 0 分
+  if (disliked.some(d => (job.company || '').includes(d) || d.includes(job.company || ''))) {
+    return { score: 0, reasons: ['❌ 公司在你的拉黑列表'] };
+  }
+
+  let score = 40; // 基础分
+  const reasons = [];
+
+  // 1. 关键词匹配（最高 30 分）
+  const fullText = `${job.title || ''} ${job.category || ''} ${job.jd || ''} ${(job.tags || '[]')}`.toLowerCase();
+  let kwScore = 0;
+  for (const k of keywords) {
+    const kw = (k.text || '').toLowerCase();
+    if (!kw) continue;
+    if (fullText.includes(kw)) {
+      kwScore += (k.weight || 0) * 0.3;
+      reasons.push(`✓ 匹配关键词「${k.text}」`);
+    }
+  }
+  score += Math.min(30, kwScore);
+
+  // 2. 城市匹配（最高 20 分）
+  if (job.city) {
+    for (const c of cities) {
+      if ((job.city || '').includes(c.text)) {
+        score += (c.weight || 0) * 0.2;
+        reasons.push(`✓ 城市「${c.text}」`);
+        break;
+      }
+    }
+  }
+
+  // 3. 偏好公司加分（最高 15 分）
+  for (const l of liked) {
+    if ((job.company || '').includes(l) || l.includes(job.company || '')) {
+      score += 15;
+      reasons.push(`✓ 偏好公司「${l}」`);
+      break;
+    }
+  }
+
+  // 4. 实习类型（5 分）
+  const wantType = target.internType || 'all';
+  if (wantType === 'all' || wantType === job.intern_type) {
+    score += 5;
+  } else {
+    score -= 10;
+    reasons.push(`⚠️ ${job.intern_type === 'summer' ? '暑期' : '日常'}实习，与偏好不符`);
+  }
+
+  // 5. 分类匹配（岗位方向）
+  const jobTitle = (target.jobTitle || '').toLowerCase();
+  const cat = (job.category || '').toLowerCase();
+  if (jobTitle && cat && (jobTitle.includes(cat) || cat.includes(jobTitle.slice(0, 2)))) {
+    score += 10;
+    reasons.push(`✓ 岗位方向「${job.category}」`);
+  }
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  if (reasons.length === 0) reasons.push('基础匹配');
+  return { score, reasons };
+}
+
+// =============== 今日推荐页 ===============
 function Dashboard({ state, setState, toast, onNav }) {
   const today = formatDate();
   const todayJobs = state.jobs.filter(j => j.discoveredDate === today);
-  const starJobs = [...state.jobs].sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0)).slice(0, 5);
 
   // 后端真实数据
-  const [backendOnline, setBackendOnline] = useState(null); // null=检测中, true/false
+  const [backendOnline, setBackendOnline] = useState(null);
   const [backendStats, setBackendStats] = useState(null);
   const [backendJobs, setBackendJobs] = useState([]);
   const [loadingBackend, setLoadingBackend] = useState(false);
+  const [aiRanking, setAiRanking] = useState(false);
+  const [aiRankMap, setAiRankMap] = useState({}); // { jobId: { score, reason } }
 
   // 启动时检测后端并拉数据
   useEffect(() => {
@@ -1055,7 +1142,7 @@ function Dashboard({ state, setState, toast, onNav }) {
         if (online) {
           const [statsData, jobsData] = await Promise.all([
             fetchBackendStats().catch(() => null),
-            fetchBackendJobs({ limit: 50 }).catch(() => ({ jobs: [] })),
+            fetchBackendJobs({ limit: 200 }).catch(() => ({ jobs: [] })),
           ]);
           if (cancelled) return;
           setBackendStats(statsData);
@@ -1067,69 +1154,146 @@ function Dashboard({ state, setState, toast, onNav }) {
     return () => { cancelled = true; };
   }, []);
 
-  const localStats = {
-    total: state.jobs.length,
-    today: todayJobs.length,
-    applied: state.applications.filter(a => a.status === 'applied').length,
-    interview: state.applications.filter(a => a.status === 'interview').length,
-    offer: state.applications.filter(a => a.status === 'offer').length,
+  // 本地快速打分：给所有后端岗位排序
+  const scoredJobs = useMemo(() => {
+    return backendJobs.map(job => {
+      const local = scoreBackendJob(job, state);
+      const ai = aiRankMap[job.id];
+      // 如果有 AI 排序分，用 AI 分覆盖
+      return {
+        ...job,
+        _localScore: local.score,
+        _localReasons: local.reasons,
+        _aiScore: ai?.score ?? null,
+        _aiReason: ai?.reason ?? null,
+        _finalScore: ai?.score ?? local.score,
+        _reason: ai?.reason || local.reasons.join('，'),
+      };
+    }).sort((a, b) => b._finalScore - a._finalScore);
+  }, [backendJobs, state, aiRankMap]);
+
+  const top10 = scoredJobs.slice(0, 10);
+  const highMatch = scoredJobs.filter(j => j._finalScore >= 70).length;
+
+  // AI 深度排序 Top 10
+  const runAIRank = async () => {
+    if (aiRanking) return;
+    if (top10.length === 0) { toast('还没有岗位可以排序', 'info'); return; }
+    setAiRanking(true);
+    try {
+      const userId = getUserId();
+      const preference = {
+        jobTitle: state.target.jobTitle,
+        keywords: state.target.keywords,
+        cities: state.target.cities,
+        liked: state.company.liked,
+        disliked: state.company.disliked,
+        internType: state.target.internType,
+      };
+      const res = await fetch('/api/jobs/rank', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          preference,
+          jobs: top10,
+          top: 10,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.error === 'quota_exceeded') {
+          toast(`❌ 今日免费 AI 额度已用完，请在「AI 设置」配置自己的 Key`, 'error');
+        } else {
+          toast(`❌ AI 排序失败：${data.message || data.error}`, 'error');
+        }
+        return;
+      }
+      // 把 ranked 结果映射回 job id
+      const map = {};
+      for (const item of (data.ranked || [])) {
+        const job = top10[item.idx];
+        if (job) map[job.id] = { score: item.score, reason: item.reason };
+      }
+      setAiRankMap(map);
+      toast(`✅ AI 深度排序完成（今日剩余 ${data.quota?.remaining}/${data.quota?.limit}）`, 'success');
+    } catch (e) {
+      toast(`❌ AI 排序失败：${e.message}`, 'error');
+    } finally {
+      setAiRanking(false);
+    }
   };
 
-  // 合并统计：后端真实岗位 + 本地 AI 岗位
-  const stats = {
-    realJobs: backendStats ? backendStats.jobs : 0,
-    articles: backendStats ? backendStats.articles : 0,
-    localJobs: state.jobs.length,
-    today: todayJobs.length,
-    applied: localStats.applied,
-    interview: localStats.interview,
-    offer: localStats.offer,
+  // 把单个后端岗位导入本地
+  const importOne = (job) => {
+    const existing = state.jobs.find(j => j.title === job.title && j.company === job.company);
+    if (existing) { toast('已在本地岗位库', 'info'); return; }
+    const newJob = {
+      id: uuid(),
+      title: job.title || '未知岗位',
+      company: job.company || '未知公司',
+      department: job.department || '',
+      city: job.city || '',
+      salary: job.salary || '',
+      duration: job.duration || '',
+      workingDays: job.working_days || '',
+      internType: job.intern_type === 'summer' ? 'summer' : 'daily',
+      publishedAt: job.published_at || '',
+      url: job.source_url || '',
+      jd: job.jd || '',
+      summary: job.jd ? job.jd.slice(0, 80) + '…' : '',
+      matchScore: job._finalScore || 0,
+      matchReason: job._reason || '',
+      discoveredDate: today,
+      isNew: true,
+      source: 'backend',
+      sourceAccount: job.source_account || '',
+      applyContact: job.apply_contact || '',
+      requirements: job.requirements || '',
+      category: job.category || '',
+    };
+    setState({
+      ...state,
+      jobs: [newJob, ...state.jobs.map(j => ({ ...j, isNew: false }))],
+      stats: { ...state.stats, totalJobs: state.stats.totalJobs + 1 },
+    });
+    toast(`✅ 已导入：${job.title}`, 'success');
   };
 
-  // 把后端岗位一键导入本地
-  const importBackendJobs = () => {
-    if (!backendJobs.length) return;
-    const existing = new Set(state.jobs.map(j => `${j.title}__${j.company}__${j.department || ''}`));
+  // 批量导入 Top 10
+  const importTop10 = () => {
+    const existing = new Set(state.jobs.map(j => `${j.title}__${j.company}`));
     const newJobs = [];
-    for (const j of backendJobs) {
-      const key = `${j.title}__${j.company}__${j.department || ''}`;
+    for (const job of top10) {
+      const key = `${job.title}__${job.company}`;
       if (existing.has(key)) continue;
       existing.add(key);
       newJobs.push({
-        id: j.id || uuid(),
-        title: j.title || '未知岗位',
-        company: j.company || '未知公司',
-        department: j.department || '',
-        city: j.city || '',
-        salary: j.salary || '',
-        duration: j.duration || '',
-        workingDays: j.working_days || '',
-        internType: j.intern_type === 'summer' ? 'summer' : 'daily',
-        publishedAt: j.published_at || '',
-        url: j.source_url || '',
-        jd: j.jd || '',
-        summary: j.jd ? j.jd.slice(0, 80) + '…' : '',
-        matchScore: 0,
-        matchReason: '',
-        discoveredDate: today,
-        isNew: true,
-        source: 'backend',
+        id: uuid(),
+        title: job.title, company: job.company, department: job.department || '',
+        city: job.city || '', salary: job.salary || '', duration: job.duration || '',
+        workingDays: job.working_days || '', internType: job.intern_type === 'summer' ? 'summer' : 'daily',
+        publishedAt: job.published_at || '', url: job.source_url || '',
+        jd: job.jd || '', summary: job.jd ? job.jd.slice(0, 80) + '…' : '',
+        matchScore: job._finalScore || 0, matchReason: job._reason || '',
+        discoveredDate: today, isNew: true, source: 'backend',
+        sourceAccount: job.source_account || '', applyContact: job.apply_contact || '',
+        requirements: job.requirements || '', category: job.category || '',
       });
     }
-    if (!newJobs.length) { toast('所有后端岗位已存在于本地', 'info'); return; }
+    if (!newJobs.length) { toast('所有推荐已在本地', 'info'); return; }
     setState({
       ...state,
       jobs: [...newJobs, ...state.jobs.map(j => ({ ...j, isNew: false }))],
       stats: { ...state.stats, totalJobs: state.stats.totalJobs + newJobs.length },
     });
-    toast(`✅ 成功从后端导入 ${newJobs.length} 个真实岗位`, 'success');
+    toast(`✅ 导入了 ${newJobs.length} 个高匹配岗位`, 'success');
   };
 
-  // 后端连接状态指示器
   const StatusDot = () => {
-    if (backendOnline === null) return <span className="inline-block w-2 h-2 rounded-full bg-slate-300 animate-pulse" title="检测中…" />;
-    if (backendOnline) return <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" title="后端在线" />;
-    return <span className="inline-block w-2 h-2 rounded-full bg-red-400" title="后端离线" />;
+    if (backendOnline === null) return <span className="inline-block w-2 h-2 rounded-full bg-slate-300 animate-pulse" />;
+    if (backendOnline) return <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />;
+    return <span className="inline-block w-2 h-2 rounded-full bg-red-400" />;
   };
 
   return (
@@ -1141,83 +1305,44 @@ function Dashboard({ state, setState, toast, onNav }) {
             <StatusDot />
             <span className="text-xs">{backendOnline === true ? '数据源在线' : backendOnline === false ? '数据源离线' : '检测中…'}</span>
           </div>
-          <h1 className="text-3xl font-bold">每日播报</h1>
-        </div>
-        <div className="flex gap-2">
-          {backendOnline && backendJobs.length > 0 && (
-            <Button variant="success" onClick={importBackendJobs}>
-              <span className="flex items-center gap-1.5">📥 导入 {backendJobs.length} 个真实岗位</span>
-            </Button>
+          <h1 className="text-3xl font-bold">今日推荐 <span className="text-base font-normal text-slate-400 ml-2">AI 为你挑选</span></h1>
+          {backendStats && (
+            <p className="text-sm text-slate-500 mt-1">
+              从 <b>{backendStats.jobs}</b> 个真实岗位中为你筛出 <b className="text-emerald-600">{highMatch}</b> 个高匹配
+            </p>
           )}
-          <Button onClick={() => onNav('search')}>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="secondary" onClick={runAIRank} disabled={aiRanking || top10.length === 0}>
             <span className="flex items-center gap-1.5">
               <Icon name="sparkles" className="w-4 h-4" />
-              AI 搜今日新岗
+              {aiRanking ? 'AI 分析中…' : '✨ AI 深度排序'}
             </span>
           </Button>
+          {top10.length > 0 && (
+            <Button variant="success" onClick={importTop10}>
+              <span className="flex items-center gap-1.5">📥 批量导入 Top {top10.length}</span>
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* 后端数据源卡片 */}
-      {backendOnline && backendStats && (
-        <Card className="mb-6 p-4 bg-gradient-to-r from-emerald-50 to-indigo-50 border-emerald-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-semibold text-emerald-800 flex items-center gap-1.5">
-                🌐 后端自动爬取（搜狗微信 · 每 2 小时更新）
-              </div>
-              <div className="text-xs text-slate-600 mt-1">
-                已抓取 <b>{backendStats.articles}</b> 篇文章 · 提取 <b>{backendStats.jobs}</b> 个真实岗位
-                {backendStats.last_run && (
-                  <span> · 上次运行 {new Date(backendStats.last_run.started_at).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
-                )}
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-2xl font-bold text-emerald-600">{backendStats.jobs}</div>
-              <div className="text-xs text-slate-500">真实岗位</div>
-            </div>
-          </div>
-        </Card>
-      )}
-
+      {/* 核心统计 */}
       <div className="grid grid-cols-5 gap-4 mb-6">
         {[
-          { label: '本地岗位库', value: stats.localJobs, color: 'indigo' },
-          { label: '今日新增', value: stats.today, color: 'emerald' },
-          { label: '已投递', value: stats.applied, color: 'amber' },
-          { label: '面试中', value: stats.interview, color: 'purple' },
-          { label: 'Offer', value: stats.offer, color: 'rose' },
+          { label: '真实岗位库', value: backendStats?.jobs || 0, color: 'emerald', hint: '后端自动抓取' },
+          { label: '高匹配岗位', value: highMatch, color: 'indigo', hint: '≥70 分' },
+          { label: '已投递', value: state.applications.filter(a => a.status === 'applied').length, color: 'amber' },
+          { label: '面试中', value: state.applications.filter(a => a.status === 'interview').length, color: 'purple' },
+          { label: 'Offer', value: state.applications.filter(a => a.status === 'offer').length, color: 'rose' },
         ].map(s => (
           <Card key={s.label} className="p-4">
             <div className="text-xs text-slate-500">{s.label}</div>
             <div className={`text-2xl font-bold mt-1 text-${s.color}-600`}>{s.value}</div>
+            {s.hint && <div className="text-[10px] text-slate-400 mt-0.5">{s.hint}</div>}
           </Card>
         ))}
       </div>
-
-      {/* 后端真实岗位预览 */}
-      {backendOnline && backendJobs.length > 0 && (
-        <Card className="mb-6">
-          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-            <div>
-              <h2 className="font-semibold text-lg">🌐 后端抓取的真实岗位</h2>
-              <p className="text-xs text-slate-500 mt-0.5">来自搜狗微信公众号文章，AI 提取的真实岗位信息</p>
-            </div>
-            <Button variant="secondary" size="sm" onClick={importBackendJobs}>全部导入本地</Button>
-          </div>
-          <div className="divide-y divide-slate-100">
-            {backendJobs.slice(0, 10).map(job => (
-              <BackendJobCard key={job.id} job={job} state={state} setState={setState} toast={toast} />
-            ))}
-            {backendJobs.length > 10 && (
-              <div className="px-5 py-3 text-center text-xs text-slate-500">
-                还有 {backendJobs.length - 10} 个岗位，点击「全部导入本地」查看完整列表
-              </div>
-            )}
-          </div>
-        </Card>
-      )}
 
       {loadingBackend && (
         <Card className="mb-6 p-6 text-center">
@@ -1225,34 +1350,85 @@ function Dashboard({ state, setState, toast, onNav }) {
         </Card>
       )}
 
-      <Card className="mb-6">
-        <div className="px-5 py-4 border-b border-slate-100">
-          <h2 className="font-semibold text-lg">⭐ 重点关注</h2>
-          <p className="text-xs text-slate-500 mt-0.5">匹配度最高的 5 个岗位（本地）</p>
-        </div>
-        <div className="divide-y divide-slate-100">
-          {starJobs.length === 0 ? (
-            <div className="p-10 text-center text-slate-500">
-              <div className="text-4xl mb-3">🔍</div>
-              <div className="text-sm">还没有岗位数据</div>
-              <div className="text-xs text-slate-400 mt-1 mb-4">
-                {backendOnline && backendJobs.length > 0
-                  ? '点击上方「导入真实岗位」或右上角「AI 搜今日新岗」开始'
-                  : '点击右上角「AI 搜今日新岗」开始'}
-              </div>
-              <Button variant="secondary" size="sm" onClick={() => onNav('search')}>去搜岗 →</Button>
-            </div>
-          ) : starJobs.map(job => <JobRow key={job.id} job={job} state={state} setState={setState} toast={toast} />)}
-        </div>
-      </Card>
+      {!loadingBackend && !backendOnline && (
+        <Card className="mb-6 p-6 text-center bg-amber-50 border-amber-200">
+          <div className="text-4xl mb-2">🔌</div>
+          <div className="text-sm text-amber-800">后端数据源暂时无法连接，刷新试试</div>
+        </Card>
+      )}
 
-      {todayJobs.length > 0 && (
-        <Card>
+      {/* 为你精选 Top 10 */}
+      {top10.length > 0 && (
+        <Card className="mb-6">
           <div className="px-5 py-4 border-b border-slate-100">
-            <h2 className="font-semibold text-lg">📬 今日新增 ({todayJobs.length})</h2>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-semibold text-lg">⭐ 为你精选的 {top10.length} 个岗位</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {Object.keys(aiRankMap).length > 0
+                    ? '✨ AI 深度排序 · 匹配理由基于你的偏好定制'
+                    : '📊 基于关键词/城市/公司偏好本地快速打分，点右上角「AI 深度排序」获得更精准推荐'}
+                </p>
+              </div>
+            </div>
           </div>
           <div className="divide-y divide-slate-100">
-            {todayJobs.map(job => <JobRow key={job.id} job={job} state={state} setState={setState} toast={toast} />)}
+            {top10.map((job, idx) => (
+              <div key={job.id} className="px-5 py-4 hover:bg-slate-50 flex items-start gap-4">
+                <div className="flex-shrink-0 w-10 text-center">
+                  <div className="text-xs text-slate-400">#{idx + 1}</div>
+                  <div className={`text-xl font-bold mt-0.5 ${
+                    job._finalScore >= 85 ? 'text-emerald-600' :
+                    job._finalScore >= 70 ? 'text-indigo-600' :
+                    job._finalScore >= 50 ? 'text-slate-600' : 'text-slate-400'
+                  }`}>{job._finalScore}</div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-slate-900">{job.title}</span>
+                    <span className="text-slate-400">·</span>
+                    <span className="text-slate-700">{job.company}</span>
+                    {job.category && job.category !== '其他' && <Tag variant="indigo">{job.category}</Tag>}
+                    {job.intern_type === 'summer' ? <Tag variant="rose">🌞 暑期</Tag> : <Tag variant="indigo">📅 日常</Tag>}
+                    {job._aiScore != null && <Tag variant="emerald">✨ AI 精排</Tag>}
+                  </div>
+                  <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500 flex-wrap">
+                    {job.city && <span>📍 {job.city}</span>}
+                    {job.salary && <span>💰 {job.salary}</span>}
+                    {job.source_account && <span>📰 {job.source_account}</span>}
+                  </div>
+                  <div className={`text-xs mt-1.5 ${job._aiScore != null ? 'text-emerald-700' : 'text-slate-600'}`}>
+                    💡 {job._reason}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Button variant="secondary" size="sm" onClick={() => importOne(job)}>导入</Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {backendOnline && backendJobs.length === 0 && !loadingBackend && (
+        <Card className="mb-6 p-10 text-center text-slate-500">
+          <div className="text-4xl mb-3">📭</div>
+          <div className="text-sm">后端还没有抓取到岗位</div>
+          <div className="text-xs text-slate-400 mt-1">Cron 每 2 小时自动爬取，或在「🔧 管理面板」手动触发</div>
+        </Card>
+      )}
+
+      {/* 本地已导入的岗位 */}
+      {state.jobs.length > 0 && (
+        <Card>
+          <div className="px-5 py-4 border-b border-slate-100">
+            <h2 className="font-semibold text-lg">📁 你的本地岗位库 ({state.jobs.length})</h2>
+            <p className="text-xs text-slate-500 mt-0.5">已导入 / 粘贴 / AI 生成的岗位</p>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {[...state.jobs].sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0)).slice(0, 5).map(job =>
+              <JobRow key={job.id} job={job} state={state} setState={setState} toast={toast} />
+            )}
           </div>
         </Card>
       )}
@@ -1500,13 +1676,13 @@ ${pasteJD}
     }
   };
 
-  const hasAI = state.ai.apiKey || (state.ai.useShared && state.ai.sharedEndpoint);
+  const hasAI = true; // 默认有免费额度，调用时失败/超额再提示
 
   return (
     <div className="p-8 max-w-4xl mx-auto fade-in">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold mb-1">AI 搜岗</h1>
-        <p className="text-slate-500">让 AI 帮你实时搜索符合偏好的实习岗位</p>
+        <h1 className="text-3xl font-bold mb-1">发现岗位</h1>
+        <p className="text-slate-500">浏览真实岗位库 · 粘贴 JD 解析 · AI 生成岗位方向参考</p>
       </div>
 
       {!hasAI && (
@@ -1853,7 +2029,7 @@ function InterviewPage({ state, setState, toast }) {
   const [grading, setGrading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showMistakes, setShowMistakes] = useState(false);
-  const hasAI = state.ai.apiKey || (state.ai.useShared && state.ai.sharedEndpoint);
+  const hasAI = true; // 默认有免费额度
 
   const generateQuestion = async () => {
     if (!hasAI) { toast('请先在「AI 设置」中配置 API Key', 'error'); return; }
@@ -1898,7 +2074,7 @@ ${recentTitles ? `\n注意：不要和这些最近出过的题重复：${recentT
 【题目】${current.question}
 【候选人回答】${answer}
 
-严格返回 JSON：{"score":1-10的整数,"pros":"答得好的点（2-3条）","cons":"可改进的点（2-3条）","reference":"参考答案思路（给框架即可）"}`;
+严格返回 JSON：{"score":1-10的整数,"pros":"答得好的点（2-3条）","cons":"可改进的点（2-3条）","reference":"参考思路大纲：用要点而非完整答案，3-5 个思考角度的关键词/短句，不要代替候选人思考"}`;
 
       const content = await callAI(state, [
         { role: 'system', content: '你是资深产品面试官，点评犀利但建设性。严格返回 JSON。' },
@@ -1927,12 +2103,54 @@ ${recentTitles ? `\n注意：不要和这些最近出过的题重复：${recentT
     }
   };
 
+  // 面试题库模式
+  const [mode, setMode] = useState('bank'); // 'bank' = 真题库, 'trainer' = AI 陪练
+  const [bankQuestions, setBankQuestions] = useState([]);
+  const [bankLoading, setBankLoading] = useState(false);
+  const [bankFilter, setBankFilter] = useState({ company: '', category: '', round: '' });
+  const [selectedQ, setSelectedQ] = useState(null);
+
+  useEffect(() => {
+    if (mode !== 'bank') return;
+    setBankLoading(true);
+    const qs = new URLSearchParams();
+    if (bankFilter.company) qs.set('company', bankFilter.company);
+    if (bankFilter.category) qs.set('category', bankFilter.category);
+    if (bankFilter.round) qs.set('round', bankFilter.round);
+    qs.set('limit', '200');
+    fetch(`/api/interview-questions?${qs}`)
+      .then(r => r.json())
+      .then(data => setBankQuestions(data.questions || []))
+      .catch(() => setBankQuestions([]))
+      .finally(() => setBankLoading(false));
+  }, [mode, bankFilter]);
+
+  // 从题库挑一题加入练习（把真题 push 进 history 并 setCurrent）
+  const practiceFromBank = (q) => {
+    const newQ = {
+      id: uuid(),
+      title: `${q.company || '大厂'} · ${q.position || '岗位'} · ${q.round || ''}`.replace(/\s+·\s+/g, ' · '),
+      type: q.category || '真题',
+      question: q.question,
+      hint: (() => { try { return JSON.parse(q.thinking_points || '[]').map((t, i) => `${i+1}. ${t}`).join('\n'); } catch { return ''; } })(),
+      createdAt: new Date().toISOString(),
+      sourceBank: true,
+    };
+    setCurrent(newQ);
+    setAnswer('');
+    setMode('trainer');
+    setState({
+      ...state,
+      interview: { ...state.interview, history: [...state.interview.history, newQ] },
+    });
+  };
+
   return (
-    <div className="p-8 max-w-4xl mx-auto fade-in">
+    <div className="p-8 max-w-5xl mx-auto fade-in">
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold mb-1">面试备战</h1>
-          <p className="text-slate-500">AI 出题 · 即时批改 · 错题本</p>
+          <h1 className="text-3xl font-bold mb-1">面试题库 <span className="text-base font-normal text-slate-400 ml-2">真题 + AI 陪练</span></h1>
+          <p className="text-slate-500">大厂真实面经题（带思考大纲） · AI 出题陪练 · 即时批改 · 错题本</p>
         </div>
         <div className="flex gap-2">
           <Button variant="secondary" onClick={() => setShowMistakes(true)}>
@@ -1941,7 +2159,152 @@ ${recentTitles ? `\n注意：不要和这些最近出过的题重复：${recentT
         </div>
       </div>
 
-      {!current ? (
+      {/* Tab 切换 */}
+      <div className="flex gap-2 mb-5">
+        <button onClick={() => setMode('bank')}
+          className={`flex-1 px-4 py-3 rounded-xl border-2 text-left transition-all ${
+            mode === 'bank' ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-white hover:border-slate-300'
+          }`}>
+          <div className="font-semibold text-sm">📚 真题题库</div>
+          <div className="text-xs text-slate-500 mt-1">大厂真实面经题 · 带 AI 思考大纲（不代替你思考）</div>
+        </button>
+        <button onClick={() => setMode('trainer')}
+          className={`flex-1 px-4 py-3 rounded-xl border-2 text-left transition-all ${
+            mode === 'trainer' ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-white hover:border-slate-300'
+          }`}>
+          <div className="font-semibold text-sm">💪 AI 陪练</div>
+          <div className="text-xs text-slate-500 mt-1">AI 根据你的目标岗位出题，回答后即时批改</div>
+        </button>
+      </div>
+
+      {/* 真题题库 */}
+      {mode === 'bank' && (
+        <>
+          {/* 筛选 */}
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            <input value={bankFilter.company} onChange={e => setBankFilter({ ...bankFilter, company: e.target.value })}
+              placeholder="公司（如：字节）"
+              className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            <select value={bankFilter.category} onChange={e => setBankFilter({ ...bankFilter, category: e.target.value })}
+              className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+              <option value="">全部类型</option>
+              <option value="产品思维">产品思维</option>
+              <option value="数据分析">数据分析</option>
+              <option value="经历深挖">经历深挖</option>
+              <option value="行业认知">行业认知</option>
+              <option value="业务场景">业务场景</option>
+              <option value="算法题">算法题</option>
+              <option value="基础知识">基础知识</option>
+              <option value="开放题">开放题</option>
+            </select>
+            <select value={bankFilter.round} onChange={e => setBankFilter({ ...bankFilter, round: e.target.value })}
+              className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+              <option value="">全部轮次</option>
+              <option value="一面">一面</option>
+              <option value="二面">二面</option>
+              <option value="三面">三面</option>
+              <option value="HR面">HR面</option>
+              <option value="终面">终面</option>
+              <option value="群面">群面</option>
+              <option value="笔试">笔试</option>
+            </select>
+            {(bankFilter.company || bankFilter.category || bankFilter.round) && (
+              <Button variant="ghost" size="sm" onClick={() => setBankFilter({ company: '', category: '', round: '' })}>清空</Button>
+            )}
+            <div className="ml-auto text-sm text-slate-500">共 {bankQuestions.length} 道题</div>
+          </div>
+
+          {bankLoading && <Card className="p-6 text-center text-slate-500 text-sm">⏳ 加载中…</Card>}
+
+          {!bankLoading && bankQuestions.length === 0 && (
+            <Card className="p-10 text-center text-slate-500">
+              <div className="text-4xl mb-3">📝</div>
+              <div className="text-sm">暂无面经题（公众号文章处理中…）</div>
+              <div className="text-xs text-slate-400 mt-1">Cron 每 2 小时自动抓取，或在管理面板点「自动处理」加速</div>
+            </Card>
+          )}
+
+          {!bankLoading && bankQuestions.length > 0 && (
+            <Card>
+              <div className="divide-y divide-slate-100">
+                {bankQuestions.map(q => {
+                  const points = (() => { try { return JSON.parse(q.thinking_points || '[]'); } catch { return []; } })();
+                  const tags = (() => { try { return JSON.parse(q.tags || '[]'); } catch { return []; } })();
+                  return (
+                    <div key={q.id} className="px-5 py-4 hover:bg-slate-50 cursor-pointer" onClick={() => setSelectedQ(q)}>
+                      <div className="flex items-start gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            {q.company && <Tag variant="indigo">{q.company}</Tag>}
+                            {q.position && <Tag>{q.position}</Tag>}
+                            {q.round && <Tag variant="amber">{q.round}</Tag>}
+                            {q.category && <Tag variant="emerald">{q.category}</Tag>}
+                            <span className="text-xs text-slate-400">难度 {q.difficulty}/5</span>
+                          </div>
+                          <div className="font-semibold text-slate-900">{q.question}</div>
+                          {points.length > 0 && (
+                            <div className="text-xs text-slate-500 mt-1.5 line-clamp-1">
+                              💡 思考要点：{points.slice(0, 3).join(' / ')}{points.length > 3 ? '…' : ''}
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-xs text-indigo-600 whitespace-nowrap">查看 →</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
+
+          {/* 题目详情弹窗 */}
+          <Modal open={!!selectedQ} onClose={() => setSelectedQ(null)}
+            title={selectedQ ? `${selectedQ.company || '大厂'} · ${selectedQ.position || '面试题'}` : ''} size="lg"
+            footer={<>
+              {selectedQ?.source_url && (
+                <Button variant="secondary" onClick={() => window.open(selectedQ.source_url, '_blank')}>
+                  📖 查看原文
+                </Button>
+              )}
+              <Button onClick={() => { practiceFromBank(selectedQ); setSelectedQ(null); }}>
+                💪 用这道题练习
+              </Button>
+            </>}>
+            {selectedQ && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {selectedQ.round && <Tag variant="amber">{selectedQ.round}</Tag>}
+                  {selectedQ.category && <Tag variant="emerald">{selectedQ.category}</Tag>}
+                  <span className="text-xs text-slate-500">难度 {selectedQ.difficulty}/5</span>
+                </div>
+                <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                  <div className="text-xs font-semibold text-slate-600 mb-1.5">🎯 题目</div>
+                  <div className="text-slate-900 leading-relaxed whitespace-pre-wrap">{selectedQ.question}</div>
+                </div>
+                {selectedQ.context && (
+                  <div className="text-xs text-slate-500">背景：{selectedQ.context}</div>
+                )}
+                {(() => {
+                  const points = (() => { try { return JSON.parse(selectedQ.thinking_points || '[]'); } catch { return []; } })();
+                  if (!points.length) return null;
+                  return (
+                    <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-lg">
+                      <div className="text-xs font-semibold text-indigo-700 mb-2">💡 思考要点（只是大纲，不是答案）</div>
+                      <ul className="space-y-1.5 text-sm text-indigo-900">
+                        {points.map((p, i) => <li key={i} className="flex gap-2"><span>{i + 1}.</span><span>{p}</span></li>)}
+                      </ul>
+                      <div className="text-xs text-indigo-600 mt-3 italic">👉 点右下角"用这道题练习"，自己作答后 AI 会给批改反馈</div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </Modal>
+        </>
+      )}
+
+      {/* AI 陪练 */}
+      {mode === 'trainer' && !current && (
         <Card className="p-8 text-center">
           <div className="text-5xl mb-4">💪</div>
           <div className="text-xl font-semibold mb-2">今天来几道面试题？</div>
@@ -1949,7 +2312,6 @@ ${recentTitles ? `\n注意：不要和这些最近出过的题重复：${recentT
           <Button onClick={generateQuestion} disabled={loading || !hasAI} size="lg">
             {loading ? '出题中…' : '🎯 来一道题'}
           </Button>
-          {!hasAI && <div className="text-xs text-amber-600 mt-3">⚠️ 需先在「AI 设置」配置 API Key</div>}
           {state.interview.history.length > 0 && (
             <div className="mt-8 text-left">
               <div className="text-sm font-semibold text-slate-600 mb-2">最近做过的题</div>
@@ -1968,11 +2330,14 @@ ${recentTitles ? `\n注意：不要和这些最近出过的题重复：${recentT
             </div>
           )}
         </Card>
-      ) : (
+      )}
+
+      {mode === 'trainer' && current && (
         <Card className="p-6">
           <div className="flex items-start justify-between mb-4">
             <div>
               <Tag variant="indigo">{current.type}</Tag>
+              {current.sourceBank && <Tag variant="emerald">真题</Tag>}
               <h2 className="text-xl font-bold mt-2">{current.title}</h2>
             </div>
             <Button variant="ghost" size="sm" onClick={() => { setCurrent(null); setAnswer(''); }}>换一题</Button>
@@ -1980,7 +2345,8 @@ ${recentTitles ? `\n注意：不要和这些最近出过的题重复：${recentT
           <div className="text-slate-700 leading-relaxed whitespace-pre-wrap mb-4">{current.question}</div>
           {current.hint && !current.grade && (
             <div className="text-sm text-slate-500 bg-slate-50 p-3 rounded-lg mb-4 border border-slate-100">
-              💭 <b>提示：</b>{current.hint}
+              💭 <b>思考要点（仅大纲，不代替你思考）：</b>
+              <div className="whitespace-pre-wrap mt-1">{current.hint}</div>
             </div>
           )}
 
@@ -2379,7 +2745,9 @@ function ConfigPage({ state, setState, toast }) {
 // =============== AI 设置页 ===============
 function AISettingsPage({ state, setState, toast }) {
   const [testing, setTesting] = useState(false);
-  const [showGuide, setShowGuide] = useState(null);
+  const [quota, setQuota] = useState(null);
+  const [showGuide, setShowGuide] = useState(false);
+
   const update = (path, value) => {
     const parts = path.split('.');
     const next = JSON.parse(JSON.stringify(state));
@@ -2389,13 +2757,32 @@ function AISettingsPage({ state, setState, toast }) {
     setState(next);
   };
 
-  const test = async () => {
+  // 初始加载免费额度
+  useEffect(() => {
+    fetchQuota().then(setQuota);
+  }, []);
+
+  // 测试免费额度
+  const testFree = async () => {
     setTesting(true);
     try {
-      const res = await callAI(state, [
-        { role: 'user', content: '只回复一个字：好' },
-      ], { temperature: 0 });
-      toast(`✅ AI 调用成功！返回：${res.slice(0, 30)}`, 'success');
+      const r = await callFreeAI([{ role: 'user', content: '只回复一个字：好' }], { temperature: 0 });
+      toast(`✅ 免费 AI 可用！返回：${r.content.slice(0, 30)}（今日剩余 ${r.quota.remaining}/${r.quota.limit}）`, 'success');
+      setQuota({ used: r.quota.used, limit: r.quota.limit, remaining: r.quota.remaining });
+    } catch (e) {
+      toast(`❌ 免费 AI 测试失败：${e.message}`, 'error');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  // 测试自配 Key
+  const testCustom = async () => {
+    if (!state.ai.apiKey) { toast('请先填写 API Key', 'error'); return; }
+    setTesting(true);
+    try {
+      const r = await callCustomAI(state, [{ role: 'user', content: '只回复一个字：好' }], { temperature: 0 });
+      toast(`✅ 自配 API 可用！返回：${r.content.slice(0, 30)}`, 'success');
     } catch (e) {
       toast(`❌ 测试失败：${e.message}`, 'error');
     } finally {
@@ -2403,112 +2790,112 @@ function AISettingsPage({ state, setState, toast }) {
     }
   };
 
-  const provider = AI_PROVIDERS[state.ai.provider];
-
   return (
     <div className="p-8 max-w-3xl mx-auto fade-in">
       <div className="mb-6">
         <h1 className="text-3xl font-bold mb-1">AI 设置</h1>
-        <p className="text-slate-500">配置大模型服务商，用于搜岗和面试备战</p>
+        <p className="text-slate-500">默认使用免费额度，用完后可配自己的 API Key 继续使用</p>
       </div>
 
       <div className="space-y-5">
-        {/* 服务商选择 */}
-        <Card className="p-5">
-          <div className="font-semibold mb-3">🤖 选择 AI 服务商</div>
-          <div className="grid grid-cols-2 gap-3">
-            {Object.entries(AI_PROVIDERS).map(([key, p]) => (
-              <button key={key} onClick={() => { update('ai.provider', key); update('ai.model', ''); }}
-                className={`p-4 rounded-xl border-2 text-left transition-all ${
-                  state.ai.provider === key
-                    ? 'border-indigo-500 bg-indigo-50'
-                    : 'border-slate-200 bg-white hover:border-slate-300'
-                }`}>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="font-semibold">{p.name}</span>
-                  <Tag variant="indigo">{p.badge}</Tag>
-                </div>
-                <div className="text-xs text-slate-500 mt-1">{p.priceHint}</div>
-              </button>
-            ))}
+        {/* 免费额度状态 */}
+        <Card className="p-5 bg-gradient-to-r from-emerald-50 to-indigo-50 border-emerald-200">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="font-semibold text-emerald-900">🎁 每日免费 AI 额度</div>
+              <div className="text-xs text-slate-600 mt-0.5">匹配打分 / JD 解析 / 面试批改通用</div>
+            </div>
+            <Button variant="secondary" size="sm" onClick={testFree} disabled={testing}>
+              {testing ? '测试中…' : '🔬 测试'}
+            </Button>
           </div>
+          {quota && (
+            <div>
+              <div className="flex items-center justify-between text-sm mb-1.5">
+                <span className="text-slate-700">今日剩余</span>
+                <span className="font-bold text-emerald-700">{quota.remaining} / {quota.limit}</span>
+              </div>
+              <div className="w-full bg-white rounded-full h-2 overflow-hidden">
+                <div className="bg-gradient-to-r from-emerald-500 to-indigo-500 h-full transition-all"
+                  style={{ width: `${(quota.remaining / quota.limit) * 100}%` }} />
+              </div>
+              {quota.remaining === 0 && (
+                <div className="text-xs text-amber-700 mt-2">⚠️ 今日免费额度已用完，请在下方配置自己的 API Key 继续使用（每天 0 点刷新）</div>
+              )}
+            </div>
+          )}
         </Card>
 
-        {/* 当前服务商配置 */}
+        {/* 自配 API（OpenAI 兼容） */}
         <Card className="p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <div className="font-semibold">⚙️ {provider.name} 配置</div>
-              <div className="text-xs text-slate-500 mt-0.5">{provider.priceHint}</div>
+              <div className="font-semibold">🔑 自配 API（可选）</div>
+              <div className="text-xs text-slate-500 mt-0.5">支持任何 OpenAI 兼容的大模型 API（DeepSeek / OpenAI / Kimi / 通义千问 / 自部署模型）</div>
             </div>
-            <Button variant="secondary" size="sm" onClick={() => setShowGuide(provider)}>📖 获取 Key 指南</Button>
+            <Button variant="secondary" size="sm" onClick={() => setShowGuide(true)}>📖 DeepSeek Key 指南</Button>
           </div>
           <div className="space-y-4">
             <div>
-              <label className="text-xs text-slate-500">API Key</label>
-              <input type="password" value={state.ai.apiKey}
-                onChange={e => update('ai.apiKey', e.target.value)}
-                placeholder="粘贴你的 API Key，如 sk-xxxxx"
+              <label className="text-xs text-slate-500">API Endpoint</label>
+              <input value={state.ai.endpoint || ''} onChange={e => update('ai.endpoint', e.target.value)}
+                placeholder="https://api.deepseek.com/chat/completions"
                 className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-              <div className="text-xs text-slate-400 mt-1">
-                🔒 Key 仅保存在你的浏览器本地，永不上传 ·
-                <a href={provider.keyUrl} target="_blank" rel="noopener" className="text-indigo-600 hover:underline ml-1">去 {provider.name} 获取 Key →</a>
+              <div className="text-xs text-slate-400 mt-1">常见：
+                <button onClick={() => update('ai.endpoint', 'https://api.deepseek.com/chat/completions')} className="text-indigo-600 hover:underline ml-1">DeepSeek</button>
+                <span className="mx-1">·</span>
+                <button onClick={() => update('ai.endpoint', 'https://api.openai.com/v1/chat/completions')} className="text-indigo-600 hover:underline">OpenAI</button>
+                <span className="mx-1">·</span>
+                <button onClick={() => update('ai.endpoint', 'https://api.moonshot.cn/v1/chat/completions')} className="text-indigo-600 hover:underline">Kimi</button>
+                <span className="mx-1">·</span>
+                <button onClick={() => update('ai.endpoint', 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions')} className="text-indigo-600 hover:underline">通义千问</button>
               </div>
             </div>
             <div>
-              <label className="text-xs text-slate-500">模型（留空用默认 {provider.defaultModel}）</label>
-              <select value={state.ai.model} onChange={e => update('ai.model', e.target.value)}
-                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="">默认 ({provider.defaultModel})</option>
-                {provider.models.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
+              <label className="text-xs text-slate-500">API Key</label>
+              <input type="password" value={state.ai.apiKey || ''}
+                onChange={e => update('ai.apiKey', e.target.value)}
+                placeholder="粘贴你的 API Key，如 sk-xxxxx"
+                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              <div className="text-xs text-slate-400 mt-1">🔒 Key 仅保存在你的浏览器本地，永不上传</div>
             </div>
+            <div>
+              <label className="text-xs text-slate-500">模型名称</label>
+              <input value={state.ai.model || ''} onChange={e => update('ai.model', e.target.value)}
+                placeholder="deepseek-chat"
+                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              <div className="text-xs text-slate-400 mt-1">常见：deepseek-chat / gpt-4o-mini / moonshot-v1-8k / qwen-plus</div>
+            </div>
+            <label className="flex items-center gap-2 text-sm pt-2">
+              <input type="checkbox" checked={!!state.ai.preferCustom}
+                onChange={e => update('ai.preferCustom', e.target.checked)} />
+              <span>优先使用自配 API（不消耗免费额度）</span>
+            </label>
             <div className="pt-2">
-              <Button onClick={test} disabled={testing || !state.ai.apiKey}>
-                {testing ? '测试中…' : '🔬 测试连接'}
+              <Button onClick={testCustom} disabled={testing || !state.ai.apiKey}>
+                {testing ? '测试中…' : '🔬 测试自配 API'}
               </Button>
             </div>
           </div>
         </Card>
-
-        {/* 共享代理（高级） */}
-        <Card className="p-5">
-          <details>
-            <summary className="cursor-pointer font-semibold">🌐 共享代理配置（高级 / 可选）</summary>
-            <div className="mt-4 space-y-3">
-              <div className="text-xs text-slate-500 bg-slate-50 p-3 rounded-lg">
-                如果你部署了自己的 AI 代理服务（如 Vercel/Cloudflare Worker），可在这里填入 endpoint，启用后将不使用上方的 API Key 直连，而是走你的代理。
-                代理需要接受 POST 请求：<code className="bg-white px-1 rounded">{`{ messages, json, temperature }`}</code>，返回 <code className="bg-white px-1 rounded">{`{ content: "..." }`}</code>。
-              </div>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={state.ai.useShared} onChange={e => update('ai.useShared', e.target.checked)} />
-                启用共享代理
-              </label>
-              <div>
-                <label className="text-xs text-slate-500">代理 Endpoint</label>
-                <input value={state.ai.sharedEndpoint} onChange={e => update('ai.sharedEndpoint', e.target.value)}
-                  placeholder="https://your-proxy.vercel.app/api/chat"
-                  className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-              </div>
-            </div>
-          </details>
-        </Card>
       </div>
 
-      <Modal open={!!showGuide} onClose={() => setShowGuide(null)} title={showGuide ? `获取 ${showGuide.name} API Key` : ''} size="md"
-        footer={<Button variant="secondary" onClick={() => setShowGuide(null)}>关闭</Button>}>
-        {showGuide && (
-          <div className="space-y-4">
-            <div className="text-sm text-slate-700">{showGuide.priceHint}</div>
-            <ol className="space-y-2 list-decimal list-inside text-sm text-slate-700">
-              {showGuide.guide.map((step, i) => <li key={i}>{step}</li>)}
-            </ol>
-            <a href={showGuide.keyUrl} target="_blank" rel="noopener"
-              className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:underline">
-              <Icon name="external" className="w-4 h-4" />前往 {showGuide.name} 获取 Key
-            </a>
-          </div>
-        )}
+      <Modal open={showGuide} onClose={() => setShowGuide(false)} title="获取 DeepSeek API Key" size="md"
+        footer={<Button variant="secondary" onClick={() => setShowGuide(false)}>关闭</Button>}>
+        <div className="space-y-4">
+          <div className="text-sm text-slate-700">DeepSeek 是国内最便宜的大模型 API，约 ¥0.001/千 token，充 1 元能用一个月。</div>
+          <ol className="space-y-2 list-decimal list-inside text-sm text-slate-700">
+            <li>打开 <a href="https://platform.deepseek.com" target="_blank" rel="noopener" className="text-indigo-600 hover:underline">platform.deepseek.com</a> 注册账号（可用手机号）</li>
+            <li>左侧菜单「充值」充 1~5 元（非常耐用）</li>
+            <li>左侧菜单「API Keys」→ 创建新密钥 → 复制 sk-xxxxx</li>
+            <li>粘贴到上方的「API Key」输入框</li>
+            <li>Endpoint 和模型用默认的 DeepSeek 值即可</li>
+          </ol>
+          <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener"
+            className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:underline">
+            <Icon name="external" className="w-4 h-4" />去 DeepSeek 获取 Key
+          </a>
+        </div>
       </Modal>
     </div>
   );
