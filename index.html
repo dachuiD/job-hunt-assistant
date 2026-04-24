@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>求职小助 | 你的 AI 求职 Copilot · by AAA刨坑学</title>
+<title>求职小助 | AI 实习岗位管家 · by dxh 同学</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚽</text></svg>" />
-<meta name="description" content="你的 AI 求职 Copilot：AI 每天自动聚合真实实习岗位 · 帮你从几百个岗位里精准推荐最适合的几个 · 真实面经题库带思考大纲。" />
-<meta property="og:title" content="求职小助 · AI 求职 Copilot" />
-<meta property="og:description" content="AI 帮你从几百个真实岗位里挑出为你量身定制的那几个 · AAA刨坑学出品" />
+<meta name="description" content="AI 实习岗位管家：每天自动聚合真实实习岗位 · AI 帮你从上千个岗位里精准推荐最适合的几个 · 真实面经题库带思考大纲。" />
+<meta property="og:title" content="求职小助 · AI 实习岗位管家" />
+<meta property="og:description" content="AI 帮你从上千个真实岗位里挑出为你量身定制的那几个 · by dxh 同学" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
@@ -66,6 +66,10 @@ const defaultState = {
     degreeRequirement: '',
     immediateStartOnly: false,
     minSalary: '',
+    maxAgeDays: 14,        // 只展示 N 天内发布的岗位（默认 14 天）
+    minMatchScore: 60,     // 推荐页最低匹配度门槛（默认 60 分）
+    hideExpired: true,     // 是否隐藏超过 30 天的岗位
+    strictCityFilter: true,  // 严格城市过滤：不在目标城市的直接不推荐
   },
   output: {
     mode: 'stable',
@@ -416,8 +420,8 @@ function Sidebar({ current, onNav, state }) {
       <div className="px-3 py-3 border-t border-slate-100 space-y-1">
         <div className="px-3 py-1.5 text-xs text-slate-500">{state.profile.name ? `Hi, ${state.profile.name}` : '匿名用户'}</div>
         <div className="px-3 py-1 text-[10px] text-slate-400 flex items-center justify-between">
-          <span>v2.2</span>
-          <span title="AAA刨坑学 · 自我降解方向">by AAA刨坑学</span>
+          <span>v2.3.1</span>
+          <span title="dxh 同学出品">by dxh 同学</span>
         </div>
       </div>
     </aside>
@@ -484,7 +488,7 @@ function Onboarding({ state, setState, onDone }) {
 
   const steps = [
     {
-      title: '你的 AI 求职 Copilot ⚽',
+      title: 'AI 实习岗位管家 ⚽',
       content: (
         <div className="space-y-4">
           <p className="text-slate-600 leading-relaxed">不用你自己找岗位——<b>AI 帮你从几百个岗位里，挑出为你量身定制的那几个。</b></p>
@@ -770,13 +774,23 @@ function JobRow({ job, state, setState, toast }) {
               {job.source === 'manual' && <Tag variant="amber">📋 手动</Tag>}
               {application && <Tag variant="amber">已投递</Tag>}
               {job.isNew && <Tag variant="emerald">新</Tag>}
+              {(() => {
+                const age = jobAge({ published_at: job.publishedAt, crawled_at: job.crawledAt });
+                if (age.days === 0) return <Tag variant="emerald">🆕 今天</Tag>;
+                if (age.expired) return <Tag variant="rose">⚠️ 可能已过期</Tag>;
+                return null;
+              })()}
+              {job.jd && job.jd.length < 100 && <Tag variant="amber">⚠️ JD 不全</Tag>}
             </div>
             <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500 flex-wrap">
               {job.city && <span>📍 {job.city}</span>}
               {job.salary && <span>💰 {job.salary}</span>}
               {job.duration && <span>⏱️ {job.duration}</span>}
               {job.workingDays && <span>📅 {job.workingDays}</span>}
-              {job.publishedAt && <span>🕐 {job.publishedAt}</span>}
+              {(() => {
+                const age = jobAge({ published_at: job.publishedAt, crawled_at: job.crawledAt });
+                return age.label !== '发布时间未知' ? <span>🕐 {age.label}</span> : null;
+              })()}
             </div>
             {job.matchReason && <div className="text-xs text-slate-600 mt-1.5 line-clamp-1">💡 {job.matchReason}</div>}
           </div>
@@ -1047,22 +1061,42 @@ function BackendJobCard({ job, state, setState, toast }) {
 
 // =============== 本地匹配打分算法 ===============
 // 在前端对后端岗位做快速打分，不消耗 AI 额度
+// 返回 {score, reasons, filtered}，filtered=true 时表示应被直接过滤（不进推荐）
 function scoreBackendJob(job, prefs) {
-  const { target, company } = prefs;
+  const { target, company, filters = {} } = prefs;
   const keywords = target.keywords || [];
   const cities = target.cities || [];
+  const excludeCities = target.excludeCities || [];
   const liked = company.liked || [];
   const disliked = company.disliked || [];
 
-  // 拉黑公司直接 0 分
+  // 0. 排除城市：命中直接过滤
+  if (job.city && excludeCities.length > 0) {
+    for (const ec of excludeCities) {
+      if (job.city.includes(ec)) {
+        return { score: 0, reasons: [`❌ 在排除城市「${ec}」`], filtered: true };
+      }
+    }
+  }
+
+  // 1. 拉黑公司直接过滤
   if (disliked.some(d => (job.company || '').includes(d) || d.includes(job.company || ''))) {
-    return { score: 0, reasons: ['❌ 公司在你的拉黑列表'] };
+    return { score: 0, reasons: ['❌ 公司在你的拉黑列表'], filtered: true };
+  }
+
+  // 2. 严格城市过滤（默认开启）：不在目标城市列表 → 过滤
+  const strictCity = filters.strictCityFilter !== false;
+  if (strictCity && cities.length > 0 && job.city) {
+    const cityMatch = cities.some(c => (job.city || '').includes(c.text));
+    if (!cityMatch) {
+      return { score: 0, reasons: [`❌ 城市「${job.city}」不在你的目标城市`], filtered: true };
+    }
   }
 
   let score = 40; // 基础分
   const reasons = [];
 
-  // 1. 关键词匹配（最高 30 分）
+  // 3. 关键词匹配（最高 30 分）
   const fullText = `${job.title || ''} ${job.category || ''} ${job.jd || ''} ${(job.tags || '[]')}`.toLowerCase();
   let kwScore = 0;
   for (const k of keywords) {
@@ -1075,18 +1109,18 @@ function scoreBackendJob(job, prefs) {
   }
   score += Math.min(30, kwScore);
 
-  // 2. 城市匹配（最高 20 分）
+  // 4. 城市加分
   if (job.city) {
     for (const c of cities) {
       if ((job.city || '').includes(c.text)) {
         score += (c.weight || 0) * 0.2;
-        reasons.push(`✓ 城市「${c.text}」`);
+        reasons.push(`✓ 目标城市「${c.text}」`);
         break;
       }
     }
   }
 
-  // 3. 偏好公司加分（最高 15 分）
+  // 5. 偏好公司加分（最高 15 分）
   for (const l of liked) {
     if ((job.company || '').includes(l) || l.includes(job.company || '')) {
       score += 15;
@@ -1095,7 +1129,7 @@ function scoreBackendJob(job, prefs) {
     }
   }
 
-  // 4. 实习类型（5 分）
+  // 6. 实习类型
   const wantType = target.internType || 'all';
   if (wantType === 'all' || wantType === job.intern_type) {
     score += 5;
@@ -1104,7 +1138,7 @@ function scoreBackendJob(job, prefs) {
     reasons.push(`⚠️ ${job.intern_type === 'summer' ? '暑期' : '日常'}实习，与偏好不符`);
   }
 
-  // 5. 分类匹配（岗位方向）
+  // 7. 分类匹配
   const jobTitle = (target.jobTitle || '').toLowerCase();
   const cat = (job.category || '').toLowerCase();
   if (jobTitle && cat && (jobTitle.includes(cat) || cat.includes(jobTitle.slice(0, 2)))) {
@@ -1112,9 +1146,37 @@ function scoreBackendJob(job, prefs) {
     reasons.push(`✓ 岗位方向「${job.category}」`);
   }
 
+  // 8. JD 质量加/扣分
+  if (job.jd_quality === 'full') {
+    score += 5;
+  } else if (job.jd_quality === 'minimal') {
+    score -= 5;
+    reasons.push('⚠️ JD 信息较少');
+  }
+
   score = Math.max(0, Math.min(100, Math.round(score)));
   if (reasons.length === 0) reasons.push('基础匹配');
-  return { score, reasons };
+  return { score, reasons, filtered: false };
+}
+
+// 计算岗位发布距今天数，返回 { days, label, expired }
+function jobAge(job) {
+  const dateStr = job.published_at || job.crawled_at;
+  if (!dateStr) return { days: null, label: '发布时间未知', expired: false };
+  try {
+    const d = new Date(dateStr);
+    const diff = Math.floor((Date.now() - d.getTime()) / 86400000);
+    if (diff < 0) return { days: 0, label: '今天', expired: false };
+    if (diff === 0) return { days: 0, label: '今天', expired: false };
+    if (diff === 1) return { days: 1, label: '昨天', expired: false };
+    if (diff <= 3) return { days: diff, label: `${diff} 天前`, expired: false };
+    if (diff <= 7) return { days: diff, label: `${diff} 天前`, expired: false };
+    if (diff <= 14) return { days: diff, label: '1-2 周前', expired: false };
+    if (diff <= 29) return { days: diff, label: `${Math.round(diff / 7)} 周前`, expired: false };
+    return { days: diff, label: `${Math.round(diff / 30)} 个月前`, expired: true };
+  } catch {
+    return { days: null, label: '发布时间未知', expired: false };
+  }
 }
 
 // =============== 今日推荐页 ===============
@@ -1156,24 +1218,39 @@ function Dashboard({ state, setState, toast, onNav }) {
 
   // 本地快速打分：给所有后端岗位排序
   const scoredJobs = useMemo(() => {
+    const filters = state.filters || {};
+    const maxAgeDays = filters.maxAgeDays || 14;
+    const hideExpired = filters.hideExpired !== false;
     return backendJobs.map(job => {
       const local = scoreBackendJob(job, state);
+      const age = jobAge(job);
       const ai = aiRankMap[job.id];
-      // 如果有 AI 排序分，用 AI 分覆盖
       return {
         ...job,
         _localScore: local.score,
         _localReasons: local.reasons,
+        _filtered: local.filtered,
+        _age: age,
         _aiScore: ai?.score ?? null,
         _aiReason: ai?.reason ?? null,
         _finalScore: ai?.score ?? local.score,
         _reason: ai?.reason || local.reasons.join('，'),
       };
+    }).filter(j => {
+      // 1. 被硬过滤的（排除城市/拉黑公司/严格城市不匹配）
+      if (j._filtered) return false;
+      // 2. 超过 maxAgeDays 天的不进今日推荐
+      if (j._age.days != null && j._age.days > maxAgeDays) return false;
+      // 3. 过期 30 天以上的（如果开启了隐藏过期）
+      if (hideExpired && j._age.expired) return false;
+      return true;
     }).sort((a, b) => b._finalScore - a._finalScore);
   }, [backendJobs, state, aiRankMap]);
 
-  const top10 = scoredJobs.slice(0, 10);
-  const highMatch = scoredJobs.filter(j => j._finalScore >= 70).length;
+  const minScore = state.filters?.minMatchScore || 60;
+  const top10 = scoredJobs.filter(j => j._finalScore >= minScore).slice(0, 10);
+  const highMatch = scoredJobs.filter(j => j._finalScore >= minScore).length;
+  const filteredOutCount = backendJobs.length - scoredJobs.length;
 
   // AI 深度排序 Top 10
   const runAIRank = async () => {
@@ -1308,7 +1385,8 @@ function Dashboard({ state, setState, toast, onNav }) {
           <h1 className="text-3xl font-bold">今日推荐 <span className="text-base font-normal text-slate-400 ml-2">AI 为你挑选</span></h1>
           {backendStats && (
             <p className="text-sm text-slate-500 mt-1">
-              从 <b>{backendStats.jobs}</b> 个真实岗位中为你筛出 <b className="text-emerald-600">{highMatch}</b> 个高匹配
+              已抓取 <b>{backendStats.jobs}</b> 个真实岗位 · 为你筛出 <b className="text-emerald-600">{highMatch}</b> 个匹配（≥{minScore}分）
+              {filteredOutCount > 0 && <span className="text-slate-400"> · {filteredOutCount} 个被筛选规则过滤</span>}
             </p>
           )}
         </div>
@@ -1331,7 +1409,7 @@ function Dashboard({ state, setState, toast, onNav }) {
       <div className="grid grid-cols-5 gap-4 mb-6">
         {[
           { label: '真实岗位库', value: backendStats?.jobs || 0, color: 'emerald', hint: '后端自动抓取' },
-          { label: '高匹配岗位', value: highMatch, color: 'indigo', hint: '≥70 分' },
+          { label: `匹配 ≥ ${minScore} 分`, value: highMatch, color: 'indigo', hint: '符合筛选规则' },
           { label: '已投递', value: state.applications.filter(a => a.status === 'applied').length, color: 'amber' },
           { label: '面试中', value: state.applications.filter(a => a.status === 'interview').length, color: 'purple' },
           { label: 'Offer', value: state.applications.filter(a => a.status === 'offer').length, color: 'rose' },
@@ -1391,10 +1469,15 @@ function Dashboard({ state, setState, toast, onNav }) {
                     {job.category && job.category !== '其他' && <Tag variant="indigo">{job.category}</Tag>}
                     {job.intern_type === 'summer' ? <Tag variant="rose">🌞 暑期</Tag> : <Tag variant="indigo">📅 日常</Tag>}
                     {job._aiScore != null && <Tag variant="emerald">✨ AI 精排</Tag>}
+                    {job._age.days === 0 && <Tag variant="emerald">🆕 今天</Tag>}
+                    {job._age.days === 1 && <Tag variant="emerald">昨天</Tag>}
+                    {job._age.expired && <Tag variant="rose">⚠️ 可能已过期</Tag>}
+                    {job.jd_quality === 'minimal' && <Tag variant="amber">⚠️ JD 不全</Tag>}
                   </div>
                   <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500 flex-wrap">
                     {job.city && <span>📍 {job.city}</span>}
                     {job.salary && <span>💰 {job.salary}</span>}
+                    {job._age.label && <span>🕐 {job._age.label}</span>}
                     {job.source_account && <span>📰 {job.source_account}</span>}
                   </div>
                   <div className={`text-xs mt-1.5 ${job._aiScore != null ? 'text-emerald-700' : 'text-slate-600'}`}>
@@ -1402,7 +1485,10 @@ function Dashboard({ state, setState, toast, onNav }) {
                   </div>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <Button variant="secondary" size="sm" onClick={() => importOne(job)}>导入</Button>
+                  {job.source_url && (
+                    <Button variant="secondary" size="sm" onClick={() => window.open(job.source_url, '_blank')}>📖 原文</Button>
+                  )}
+                  <Button variant="primary" size="sm" onClick={() => importOne(job)}>加入</Button>
                 </div>
               </div>
             ))}
@@ -1437,159 +1523,85 @@ function Dashboard({ state, setState, toast, onNav }) {
 }
 // =============== AI 搜岗 ===============
 function SearchPage({ state, setState, toast }) {
-  const [loading, setLoading] = useState(false);
-  const [rawResult, setRawResult] = useState('');
-  const [showPrompt, setShowPrompt] = useState(false);
-  const [manualInput, setManualInput] = useState('');
-  const [manualMode, setManualMode] = useState(false);
-  const [progress, setProgress] = useState('');
+  // 真实岗位浏览
+  const [allJobs, setAllJobs] = useState([]);
+  const [loadingJobs, setLoadingJobs] = useState(false);
+  const [search, setSearch] = useState('');
+  const [filterCat, setFilterCat] = useState('');
+  const [filterCity, setFilterCity] = useState('');
+  const [filterType, setFilterType] = useState('all');
+  const [filterQuality, setFilterQuality] = useState('all');  // all / full / partial
+  const [sortBy, setSortBy] = useState('date');  // date / match
+  const [pageSize, setPageSize] = useState(30);
 
-  const buildPrompt = () => {
-    const { target, company, filters, output } = state;
-    const keywords = target.keywords.map(k => `${k.text}(${k.weight}%)`).join('、');
-    const cities = target.cities.map(c => `${c.text}(${c.weight}%)`).join('、');
-    const excludeCities = target.excludeCities.join('、') || '无';
-    const liked = company.liked.join('、') || '无';
-    const disliked = company.disliked.join('、') || '无';
-    const internTypeFilter = target.internType || 'all';
-    const internTypeDesc = internTypeFilter === 'daily' ? '只要日常实习（在校期间长期的）'
-      : internTypeFilter === 'summer' ? '只要暑期实习（7-9月集中的短期实习）'
-      : '日常实习和暑期实习都可以';
-    const jdMode = output.jdDisplayMode === 'summary' ? 'summary' : 'full_text';
-
-    return `你是一个专业的求职助手。请帮我整理符合以下条件的**实习岗位线索**，并返回 JSON 格式数据。
-
-## 我的求职条件
-**主岗位**：${target.jobTitle}
-**搜索关键词（按权重）**：${keywords}
-**目标城市（按权重）**：${cities}
-**排除城市**：${excludeCities}
-**偏好公司**：${liked}
-**拉黑公司**：${disliked}
-**实习类型要求**：${internTypeDesc}
-**实习时长上限**：${filters.maxDurationMonths} 个月
-**每周最少到岗**：${filters.minWorkingDays} 天
-**薪资下限**：${filters.minSalary || '不限'} 元/天
-
-## 重要说明（必读）
-1. 你是离线的，无法访问实时招聘网站，因此**不要编造发布时间、也不要编造具体的岗位 URL 链接**
-2. 你的任务是基于训练数据中的公司和岗位信息，输出"这些公司往年/通常会招的实习方向"作为**求职参考线索**
-3. **publishedAt 字段必须留空字符串 ""**，不要写"1天前"这种假时间
-4. **url 字段必须留空字符串 ""**，不要编造链接（网站会自动生成"去各平台搜索该岗位"的真实链接）
-5. JD 内容要详细写出"岗位职责"和"任职要求"两部分，尽量贴近真实大厂 JD 风格${jdMode === 'full_text' ? '，**至少 200 字**，包含职责点 4-6 条、要求点 4-6 条' : '，可以简洁（1-2 句话概括核心职责）'}
-
-## 输出要求
-1. 过滤掉被拉黑的公司，优先展示偏好公司
-2. 过滤掉实习时长超过 ${filters.maxDurationMonths} 个月的岗位
-3. 严格返回 JSON，每个岗位包含以下字段：
-   - title: 岗位名称
-   - company: 公司名
-   - department: 部门（如 AI Lab / 商业化中心，可选）
-   - city: 城市
-   - salary: 薪资区间（如 "250-300/天"）
-   - duration: 实习时长（如 "至少4个月"）
-   - workingDays: 每周到岗（如 "每周4天"）
-   - internType: **必填**，只能是 "daily"（日常实习）或 "summer"（暑期实习）
-   - publishedAt: ""（必须留空）
-   - url: ""（必须留空，不要编链接）
-   - jd: ${jdMode === 'full_text' ? 'JD 完整内容，至少 200 字，包含"岗位职责"和"任职要求"两部分' : '一句话概括核心职责（summary 模式）'}
-   - matchScore: 0-100 整数
-   - matchReason: 一句话说明匹配/不匹配原因
-4. 至少返回 ${output.minCount} 个岗位，按 matchScore 从高到低排序
-5. **只返回 JSON 对象 {"jobs":[...]}，不要任何解释文字、不要 markdown 代码块标记**
-
-## 输出格式示例
-{
-  "jobs": [
-    {
-      "title": "AI产品经理实习",
-      "company": "字节跳动",
-      "department": "AI Lab",
-      "city": "上海",
-      "salary": "250-300/天",
-      "duration": "至少4个月",
-      "workingDays": "每周4天",
-      "internType": "daily",
-      "publishedAt": "",
-      "url": "",
-      "jd": "岗位职责：\\n1. 参与 AI 产品从 0 到 1 的需求分析、功能设计与产品迭代\\n2. 跟进大模型能力在业务场景的落地，包括但不限于智能对话、内容生成、个性化推荐等\\n3. 负责产品数据指标的定义与监控，输出数据洞察驱动决策\\n4. 跨部门协作，推动算法、工程、设计团队高效落地产品需求\\n\\n任职要求：\\n1. 2025/2026 届本科及以上在读，专业不限\\n2. 对 AI/大模型技术有浓厚兴趣，关注行业动态\\n3. 有产品实习经验或完整项目经历者优先\\n4. 实习时间不少于 4 个月，每周至少 4 天",
-      "matchScore": 92,
-      "matchReason": "AI产品方向+上海+偏好公司，综合匹配最高"
-    }
-  ]
-}`;
-  };
-
-  const copyPrompt = () => {
-    navigator.clipboard.writeText(buildPrompt());
-    toast('Prompt 已复制，去 AI 里粘贴即可', 'success');
-  };
-
-  const importFromText = (text) => {
-    const parsed = extractJSON(text);
-    if (!parsed) { toast('无法解析返回内容', 'error'); return; }
-    const jobList = Array.isArray(parsed) ? parsed : parsed.jobs || parsed.data || [];
-    if (!jobList.length) { toast('未找到岗位数据', 'error'); return; }
-
-    const existing = new Set(state.jobs.map(j => `${j.title}__${j.company}__${j.department || ''}`));
-    const newJobs = [];
-    const today = formatDate();
-    for (const j of jobList) {
-      const key = `${j.title}__${j.company}__${j.department || ''}`;
-      if (existing.has(key)) continue;
-      existing.add(key);
-      newJobs.push({
-        id: uuid(),
-        title: j.title || '未知岗位',
-        company: j.company || '未知公司',
-        department: j.department || '',
-        city: j.city || '',
-        salary: j.salary || '',
-        duration: j.duration || '',
-        workingDays: j.workingDays || '',
-        internType: j.internType === 'summer' ? 'summer' : 'daily',
-        publishedAt: j.publishedAt || '',
-        url: j.url || '',
-        jd: j.jd || j.summary || '',
-        summary: j.summary || (j.jd ? j.jd.slice(0, 80) + '…' : ''),
-        matchScore: Math.round(j.matchScore || 70),
-        matchReason: j.matchReason || '',
-        discoveredDate: today,
-        isNew: true,
-      });
-    }
-    if (!newJobs.length) { toast('所有岗位已存在', 'info'); return; }
-    setState({
-      ...state,
-      jobs: [...newJobs, ...state.jobs.map(j => ({ ...j, isNew: false }))],
-      stats: { ...state.stats, totalJobs: state.stats.totalJobs + newJobs.length },
-    });
-    toast(`成功导入 ${newJobs.length} 个新岗位 🎉`, 'success');
-  };
-
-  const runAI = async () => {
-    setLoading(true); setRawResult(''); setProgress('正在请求 AI…');
-    try {
-      const content = await callAI(state, [
-        { role: 'system', content: '你是一个专业的求职助手。严格返回 JSON 格式 {"jobs":[...]}，不要任何解释文字。' },
-        { role: 'user', content: buildPrompt() },
-      ], { json: true, temperature: 0.5 });
-      setRawResult(content);
-      setProgress('解析中…');
-      importFromText(content);
-    } catch (e) {
-      toast(`AI 调用失败: ${e.message}`, 'error');
-    } finally {
-      setLoading(false); setProgress('');
-    }
-  };
-
-  // 手动粘贴真实 JD 让 AI 结构化 + 匹配打分
+  // 粘贴 JD 功能（折叠）
+  const [showPaste, setShowPaste] = useState(false);
   const [pasteJD, setPasteJD] = useState('');
   const [pasteURL, setPasteURL] = useState('');
   const [pasting, setPasting] = useState(false);
-  const [pasteMode, setPasteMode] = useState(false);
 
+  // 初始化加载全部真实岗位
+  useEffect(() => {
+    setLoadingJobs(true);
+    fetchBackendJobs({ limit: 500 })
+      .then(data => setAllJobs(data.jobs || []))
+      .catch(() => setAllJobs([]))
+      .finally(() => setLoadingJobs(false));
+  }, []);
+
+  // 收集所有出现的 category 和 city 做筛选选项
+  const catOptions = useMemo(() => {
+    const set = new Set();
+    allJobs.forEach(j => j.category && set.add(j.category));
+    return Array.from(set).sort();
+  }, [allJobs]);
+  const cityOptions = useMemo(() => {
+    const set = new Set();
+    allJobs.forEach(j => {
+      if (j.city) {
+        // 取城市第一个词（去掉区县）
+        const c = j.city.split(/[/\s、,，]/)[0];
+        if (c) set.add(c);
+      }
+    });
+    return Array.from(set).sort();
+  }, [allJobs]);
+
+  // 筛选 + 排序
+  const filteredJobs = useMemo(() => {
+    let list = allJobs.map(j => ({
+      ...j,
+      _score: scoreBackendJob(j, state),
+      _age: jobAge(j),
+    }));
+
+    if (search.trim()) {
+      const s = search.trim().toLowerCase();
+      list = list.filter(j =>
+        (j.title || '').toLowerCase().includes(s) ||
+        (j.company || '').toLowerCase().includes(s) ||
+        (j.city || '').toLowerCase().includes(s) ||
+        (j.category || '').toLowerCase().includes(s)
+      );
+    }
+    if (filterCat) list = list.filter(j => j.category === filterCat);
+    if (filterCity) list = list.filter(j => (j.city || '').includes(filterCity));
+    if (filterType !== 'all') list = list.filter(j => j.intern_type === filterType);
+    if (filterQuality !== 'all') list = list.filter(j => j.jd_quality === filterQuality);
+
+    if (sortBy === 'match') {
+      list.sort((a, b) => b._score.score - a._score.score);
+    } else {
+      list.sort((a, b) => {
+        const da = new Date(a.published_at || a.crawled_at || 0).getTime();
+        const db = new Date(b.published_at || b.crawled_at || 0).getTime();
+        return db - da;
+      });
+    }
+    return list;
+  }, [allJobs, search, filterCat, filterCity, filterType, filterQuality, sortBy, state]);
+
+  // 粘贴 JD 解析
   const parsePastedJD = async () => {
     if (!pasteJD.trim()) { toast('请先粘贴 JD 原文', 'error'); return; }
     setPasting(true);
@@ -1619,26 +1631,25 @@ ${pasteJD}
   "salary": "薪资（如 250-300/天）",
   "duration": "实习时长",
   "workingDays": "每周到岗",
-  "internType": "daily 或 summer（根据 JD 判断，暑期集中短期实习为 summer，其他为 daily）",
-  "jd": "把 JD 原文完整保留，不要删减，如有格式混乱可轻度整理但内容一个字都不能丢",
-  "matchScore": 0-100 的整数,
-  "matchReason": "结合我的偏好说明为何是这个分数"
+  "internType": "daily 或 summer",
+  "jd": "把 JD 原文完整保留",
+  "matchScore": 0-100,
+  "matchReason": "说明匹配原因"
 }
 只返回 JSON 对象，不要任何其他文字。`;
 
       const content = await callAI(state, [
-        { role: 'system', content: '你是专业的 JD 结构化助手，严格返回 JSON。保留 JD 原文内容。' },
+        { role: 'system', content: '你是专业的 JD 结构化助手，严格返回 JSON。' },
         { role: 'user', content: prompt },
       ], { json: true, temperature: 0.3 });
 
       const parsed = extractJSON(content);
       if (!parsed || !parsed.title) throw new Error('AI 无法识别 JD 内容');
 
-      // 直接塞入 jobs
       const existing = state.jobs.find(j =>
-        j.title === parsed.title && j.company === parsed.company && (j.department || '') === (parsed.department || '')
+        j.title === parsed.title && j.company === parsed.company
       );
-      if (existing) { toast('这个岗位已经在你的库里了', 'info'); return; }
+      if (existing) { toast('这个岗位已在你的本地库', 'info'); return; }
 
       const newJob = {
         id: uuid(),
@@ -1652,23 +1663,19 @@ ${pasteJD}
         internType: parsed.internType === 'summer' ? 'summer' : 'daily',
         publishedAt: '',
         url: pasteURL.trim() || '',
-        jd: parsed.jd || pasteJD,  // 兜底：AI 没返回 jd 就用用户粘贴的原文
-        summary: '',
+        jd: parsed.jd || pasteJD,
         matchScore: Math.round(parsed.matchScore || 70),
         matchReason: parsed.matchReason || '',
         discoveredDate: formatDate(),
         isNew: true,
-        source: 'manual',  // 标记来源，真实 JD
+        source: 'manual',
       };
-
       setState({
         ...state,
         jobs: [newJob, ...state.jobs.map(j => ({ ...j, isNew: false }))],
-        stats: { ...state.stats, totalJobs: state.stats.totalJobs + 1 },
       });
-      toast(`✅ 已导入：${parsed.title} @ ${parsed.company}`, 'success');
-      setPasteJD('');
-      setPasteURL('');
+      toast(`✅ 已导入本地：${parsed.title} @ ${parsed.company}`, 'success');
+      setPasteJD(''); setPasteURL(''); setShowPaste(false);
     } catch (e) {
       toast(`解析失败：${e.message}`, 'error');
     } finally {
@@ -1676,158 +1683,173 @@ ${pasteJD}
     }
   };
 
-  const hasAI = true; // 默认有免费额度，调用时失败/超额再提示
+  // 导入单个真实岗位到本地
+  const importOne = (job) => {
+    const exists = state.jobs.find(j => j.title === job.title && j.company === job.company);
+    if (exists) { toast('已在本地岗位库', 'info'); return; }
+    const newJob = {
+      id: uuid(),
+      title: job.title, company: job.company, department: job.department || '',
+      city: job.city || '', salary: job.salary || '', duration: job.duration || '',
+      workingDays: job.working_days || '', internType: job.intern_type === 'summer' ? 'summer' : 'daily',
+      publishedAt: job.published_at || '', url: job.source_url || '',
+      jd: job.jd || '', matchScore: job._score?.score || 0,
+      matchReason: job._score?.reasons?.join('，') || '',
+      discoveredDate: formatDate(), isNew: true, source: 'backend',
+      sourceAccount: job.source_account || '', applyContact: job.apply_contact || '',
+      requirements: job.requirements || '', category: job.category || '',
+    };
+    setState({
+      ...state,
+      jobs: [newJob, ...state.jobs.map(j => ({ ...j, isNew: false }))],
+    });
+    toast(`✅ 已导入：${job.title}`, 'success');
+  };
 
   return (
-    <div className="p-8 max-w-4xl mx-auto fade-in">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold mb-1">发现岗位</h1>
-        <p className="text-slate-500">浏览真实岗位库 · 粘贴 JD 解析 · AI 生成岗位方向参考</p>
+    <div className="p-8 max-w-6xl mx-auto fade-in">
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h1 className="text-3xl font-bold mb-1">发现岗位</h1>
+          <p className="text-slate-500">
+            浏览全部 <b>{allJobs.length}</b> 个真实岗位 · 当前筛选后 <b className="text-emerald-600">{filteredJobs.length}</b> 个
+          </p>
+        </div>
+        <Button variant="secondary" onClick={() => setShowPaste(!showPaste)}>
+          📋 {showPaste ? '收起' : '粘贴 JD 解析'}
+        </Button>
       </div>
 
-      {!hasAI && (
-        <Card className="mb-5 p-4 bg-amber-50 border-amber-200">
-          <div className="flex items-start gap-3">
-            <div className="text-2xl">⚠️</div>
-            <div className="flex-1">
-              <div className="font-semibold text-amber-900">AI 尚未配置</div>
-              <div className="text-sm text-amber-800 mt-1">
-                可以先配置 API Key（推荐 DeepSeek，几毛钱用一天），或使用"复制 Prompt"手动到 AI 里搜
+      {/* 粘贴 JD 折叠区 */}
+      {showPaste && (
+        <Card className="p-5 mb-5 bg-indigo-50 border-indigo-100">
+          <div className="font-semibold text-sm mb-2">📋 从招聘网站粘贴真实 JD</div>
+          <div className="text-xs text-slate-600 mb-3">从实习僧/Boss/牛客/官网复制 JD，AI 帮你结构化并加入本地岗位库</div>
+          <div className="space-y-3">
+            <input value={pasteURL} onChange={e => setPasteURL(e.target.value)}
+              placeholder="岗位链接（可选）"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            <textarea value={pasteJD} onChange={e => setPasteJD(e.target.value)}
+              placeholder="粘贴 JD 完整内容（公司名、岗位名、工作地点、职责、要求……越完整越好）"
+              rows={8}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-slate-400">已粘贴 {pasteJD.length} 字</span>
+              <Button onClick={parsePastedJD} disabled={pasting || !pasteJD.trim()}>
+                {pasting ? 'AI 解析中…' : '✨ AI 解析并导入本地'}
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* 筛选器 */}
+      <Card className="p-4 mb-4">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex-1 relative min-w-[200px]">
+            <Icon name="search" className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="搜索岗位/公司/城市/分类…"
+              className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
+          <select value={filterCat} onChange={e => setFilterCat(e.target.value)}
+            className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+            <option value="">全部分类</option>
+            {catOptions.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select value={filterCity} onChange={e => setFilterCity(e.target.value)}
+            className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+            <option value="">全部城市</option>
+            {cityOptions.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select value={filterType} onChange={e => setFilterType(e.target.value)}
+            className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+            <option value="all">全部类型</option>
+            <option value="daily">📅 日常</option>
+            <option value="summer">🌞 暑期</option>
+          </select>
+          <select value={filterQuality} onChange={e => setFilterQuality(e.target.value)}
+            className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+            <option value="all">全部 JD</option>
+            <option value="full">JD 完整</option>
+            <option value="partial">JD 部分</option>
+          </select>
+          <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+            className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+            <option value="date">按发布时间</option>
+            <option value="match">按匹配度</option>
+          </select>
+          {(search || filterCat || filterCity || filterType !== 'all' || filterQuality !== 'all') && (
+            <Button variant="ghost" size="sm" onClick={() => {
+              setSearch(''); setFilterCat(''); setFilterCity(''); setFilterType('all'); setFilterQuality('all');
+            }}>清空筛选</Button>
+          )}
+        </div>
+      </Card>
+
+      {loadingJobs && (
+        <Card className="p-10 text-center text-slate-500">⏳ 正在加载真实岗位…</Card>
+      )}
+
+      {!loadingJobs && filteredJobs.length === 0 && (
+        <Card className="p-10 text-center text-slate-500">
+          <div className="text-4xl mb-3">📭</div>
+          <div className="text-sm">没有符合条件的岗位</div>
+          <div className="text-xs text-slate-400 mt-1">试试清空筛选条件</div>
+        </Card>
+      )}
+
+      {filteredJobs.length > 0 && (
+        <Card>
+          <div className="divide-y divide-slate-100">
+            {filteredJobs.slice(0, pageSize).map(job => (
+              <div key={job.id} className="px-5 py-4 hover:bg-slate-50 flex items-start gap-4">
+                <div className="flex-shrink-0 w-12 text-center">
+                  <div className={`text-lg font-bold ${
+                    job._score.score >= 85 ? 'text-emerald-600' :
+                    job._score.score >= 70 ? 'text-indigo-600' :
+                    job._score.score >= 50 ? 'text-slate-600' : 'text-slate-400'
+                  }`}>{job._score.score}</div>
+                  <div className="text-[10px] text-slate-400">匹配度</div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-slate-900">{job.title}</span>
+                    <span className="text-slate-400">·</span>
+                    <span className="text-slate-700">{job.company}</span>
+                    {job.category && job.category !== '其他' && <Tag variant="indigo">{job.category}</Tag>}
+                    {job.intern_type === 'summer' ? <Tag variant="rose">🌞 暑期</Tag> : <Tag variant="indigo">📅 日常</Tag>}
+                    {job._age.days === 0 && <Tag variant="emerald">🆕 今天</Tag>}
+                    {job._age.days === 1 && <Tag variant="emerald">昨天</Tag>}
+                    {job._age.expired && <Tag variant="rose">⚠️ 可能已过期</Tag>}
+                    {job.jd_quality === 'minimal' && <Tag variant="amber">⚠️ JD 不全</Tag>}
+                  </div>
+                  <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500 flex-wrap">
+                    {job.city && <span>📍 {job.city}</span>}
+                    {job.salary && <span>💰 {job.salary}</span>}
+                    {job._age.label && <span>🕐 {job._age.label}</span>}
+                    {job.source_account && <span>📰 {job.source_account}</span>}
+                  </div>
+                  {job.jd && <div className="text-xs text-slate-600 mt-1.5 line-clamp-2">{job.jd.slice(0, 200)}…</div>}
+                </div>
+                <div className="flex flex-col gap-1 flex-shrink-0">
+                  {job.source_url && (
+                    <Button variant="secondary" size="sm" onClick={() => window.open(job.source_url, '_blank')}>📖 原文</Button>
+                  )}
+                  <Button variant="primary" size="sm" onClick={() => importOne(job)}>加入</Button>
+                </div>
               </div>
-            </div>
+            ))}
           </div>
-        </Card>
-      )}
-
-      {/* Tab 切换 */}
-      <div className="flex gap-2 mb-4">
-        <button onClick={() => setPasteMode(false)}
-          className={`flex-1 px-4 py-3 rounded-xl border-2 text-left transition-all ${
-            !pasteMode ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-white hover:border-slate-300'
-          }`}>
-          <div className="font-semibold text-sm flex items-center gap-1.5">
-            <Icon name="sparkles" className="w-4 h-4" /> AI 生成岗位线索
-          </div>
-          <div className="text-xs text-slate-500 mt-1">基于你的偏好，AI 生成可能的公司/岗位方向（参考用，非实时）</div>
-        </button>
-        <button onClick={() => setPasteMode(true)}
-          className={`flex-1 px-4 py-3 rounded-xl border-2 text-left transition-all ${
-            pasteMode ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-white hover:border-slate-300'
-          }`}>
-          <div className="font-semibold text-sm flex items-center gap-1.5">
-            📋 粘贴真实 JD 解析
-          </div>
-          <div className="text-xs text-slate-500 mt-1">从招聘网站复制 JD 粘贴进来，AI 帮你结构化 + 匹配打分（100% 真实）</div>
-        </button>
-      </div>
-
-      {!pasteMode && (
-        <Card className="p-6 mb-5">
-          <div className="space-y-4">
-            <div>
-              <div className="text-sm font-semibold text-slate-700 mb-2">本次搜索条件</div>
-              <div className="flex flex-wrap gap-2">
-                <Tag variant="indigo">{state.target.jobTitle}</Tag>
-                {(state.target.internType === 'summer')
-                  ? <Tag variant="rose">🌞 暑期实习</Tag>
-                  : (state.target.internType === 'daily')
-                    ? <Tag variant="indigo">📅 日常实习</Tag>
-                    : <Tag>🌐 日常 + 暑期</Tag>}
-                {state.target.keywords.slice(0, 4).map(k => <Tag key={k.text}>{k.text}</Tag>)}
-                {state.target.cities.map(c => <Tag key={c.text} variant="emerald">📍 {c.text}</Tag>)}
-              </div>
-            </div>
-
-            <div className="p-3 bg-amber-50 border border-amber-100 rounded-lg text-xs text-amber-800">
-              💡 <b>说明</b>：AI 离线无法实时搜招聘网站，这里生成的是"岗位参考线索"。<b>真实岗位数据在「每日播报」页自动抓取展示</b>。查到感兴趣的公司后，点岗位详情里的「去招聘平台搜」获取真实在招岗位。
-            </div>
-
-            <div className="flex items-center gap-2 pt-2 flex-wrap">
-              <Button onClick={runAI} disabled={loading || !hasAI} size="lg">
-                <span className="flex items-center gap-2">
-                  <Icon name="sparkles" className="w-4 h-4" />
-                  {loading ? '生成中…' : '🚀 生成岗位线索'}
-                </span>
-              </Button>
-              <Button variant="secondary" onClick={() => setShowPrompt(true)}>预览 Prompt</Button>
-              <Button variant="ghost" onClick={() => setManualMode(!manualMode)}>
-                {manualMode ? '收起 JSON 粘贴' : '从其他 AI 粘贴 JSON'}
+          {filteredJobs.length > pageSize && (
+            <div className="px-5 py-3 text-center border-t border-slate-100">
+              <Button variant="ghost" size="sm" onClick={() => setPageSize(pageSize + 30)}>
+                加载更多（还有 {filteredJobs.length - pageSize} 个）
               </Button>
             </div>
-            {progress && <div className="text-sm text-indigo-600">⏳ {progress}</div>}
-          </div>
+          )}
         </Card>
       )}
-
-      {pasteMode && (
-        <Card className="p-6 mb-5">
-          <div className="space-y-4">
-            <div>
-              <div className="font-semibold text-sm mb-1">📋 粘贴真实 JD 原文</div>
-              <div className="text-xs text-slate-500">从实习僧/Boss直聘/牛客/脉脉/公司官网等任意平台复制 JD，AI 会帮你结构化并打匹配度分</div>
-            </div>
-            <div>
-              <label className="text-xs text-slate-500">岗位链接（可选，建议填，后续可一键跳回）</label>
-              <input value={pasteURL} onChange={e => setPasteURL(e.target.value)}
-                placeholder="https://www.shixiseng.com/..."
-                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-            </div>
-            <div>
-              <label className="text-xs text-slate-500">JD 原文</label>
-              <textarea value={pasteJD} onChange={e => setPasteJD(e.target.value)}
-                placeholder="粘贴 JD 完整内容（公司名、岗位名、工作地点、职责、要求……越完整越好）"
-                rows={10}
-                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-              <div className="text-xs text-slate-400 mt-1">已粘贴 {pasteJD.length} 字</div>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <Button variant="ghost" size="sm" onClick={() => { setPasteJD(''); setPasteURL(''); }}>清空</Button>
-              <Button onClick={parsePastedJD} disabled={pasting || !pasteJD.trim() || !hasAI} size="lg">
-                <span className="flex items-center gap-2">
-                  <Icon name="sparkles" className="w-4 h-4" />
-                  {pasting ? 'AI 解析中…' : '✨ AI 解析并导入'}
-                </span>
-              </Button>
-            </div>
-          </div>
-        </Card>
-      )}
-
-      {!pasteMode && manualMode && (
-        <Card className="p-5 mb-5">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <div className="font-semibold">📥 从其他 AI 粘贴 JSON 结果</div>
-              <div className="text-xs text-slate-500 mt-0.5">把 Kimi / ChatGPT / Claude 等返回的岗位 JSON 粘贴进来</div>
-            </div>
-            <Button size="sm" variant="secondary" onClick={copyPrompt}>复制搜索 Prompt</Button>
-          </div>
-          <textarea value={manualInput} onChange={e => setManualInput(e.target.value)}
-            placeholder='粘贴 AI 返回的 JSON，例如：{"jobs": [{"title": "...", ...}]}'
-            rows={8}
-            className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-          <div className="mt-3 flex justify-end">
-            <Button onClick={() => { importFromText(manualInput); setManualInput(''); }} disabled={!manualInput.trim()}>
-              导入岗位
-            </Button>
-          </div>
-        </Card>
-      )}
-
-      {!pasteMode && rawResult && (
-        <Card className="p-5">
-          <div className="text-sm font-semibold mb-2 text-slate-700">AI 原始返回</div>
-          <pre className="text-xs text-slate-600 bg-slate-50 p-3 rounded-lg max-h-60 overflow-y-auto scrollbar-thin whitespace-pre-wrap">{rawResult}</pre>
-        </Card>
-      )}
-
-      <Modal open={showPrompt} onClose={() => setShowPrompt(false)} title="搜索 Prompt 预览" size="lg"
-        footer={<>
-          <Button variant="secondary" onClick={() => setShowPrompt(false)}>关闭</Button>
-          <Button onClick={() => { copyPrompt(); setShowPrompt(false); }}>复制 Prompt</Button>
-        </>}>
-        <pre className="text-xs text-slate-700 whitespace-pre-wrap bg-slate-50 p-4 rounded-lg">{buildPrompt()}</pre>
-      </Modal>
     </div>
   );
 }
@@ -2638,8 +2660,29 @@ function ConfigPage({ state, setState, toast }) {
 
         {/* 筛选条件 */}
         <Card className="p-5">
-          <div className="font-semibold mb-4">⚙️ 筛选条件</div>
+          <div className="font-semibold mb-1">⚙️ 岗位筛选</div>
+          <p className="text-xs text-slate-500 mb-4">决定你在「今日推荐」和「发现岗位」里能看到哪些岗位</p>
           <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs text-slate-500">只看最近 N 天发布的岗位</label>
+              <div className="flex items-center gap-2 mt-1">
+                <input type="range" min="3" max="60" value={state.filters.maxAgeDays || 14}
+                  onChange={e => update('filters.maxAgeDays', parseInt(e.target.value))}
+                  className="flex-1" />
+                <span className="w-16 text-right text-sm font-semibold text-indigo-600">{state.filters.maxAgeDays || 14} 天</span>
+              </div>
+              <div className="text-[10px] text-slate-400 mt-1">推荐 7-14 天，太老的岗位可能已过期</div>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">推荐最低匹配度</label>
+              <div className="flex items-center gap-2 mt-1">
+                <input type="range" min="30" max="90" step="5" value={state.filters.minMatchScore || 60}
+                  onChange={e => update('filters.minMatchScore', parseInt(e.target.value))}
+                  className="flex-1" />
+                <span className="w-16 text-right text-sm font-semibold text-indigo-600">{state.filters.minMatchScore || 60} 分</span>
+              </div>
+              <div className="text-[10px] text-slate-400 mt-1">低于此分数的岗位不进入"今日推荐"</div>
+            </div>
             <div>
               <label className="text-xs text-slate-500">实习时长上限（月）</label>
               <input type="number" value={state.filters.maxDurationMonths} onChange={e => update('filters.maxDurationMonths', parseInt(e.target.value) || 0)}
@@ -2663,12 +2706,24 @@ function ConfigPage({ state, setState, toast }) {
                 className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             </div>
           </div>
+          <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={state.filters.strictCityFilter !== false}
+                onChange={e => update('filters.strictCityFilter', e.target.checked)} />
+              <span>严格城市过滤（不在目标城市的岗位直接不推荐）</span>
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={state.filters.hideExpired !== false}
+                onChange={e => update('filters.hideExpired', e.target.checked)} />
+              <span>隐藏超过 30 天可能已过期的岗位</span>
+            </label>
+          </div>
         </Card>
 
         {/* 权重排序 */}
         <Card className="p-5">
-          <div className="font-semibold mb-1">⚖️ 偏好权重</div>
-          <p className="text-xs text-slate-500 mb-4">决定 AI 打分时各维度的重要程度</p>
+          <div className="font-semibold mb-1">⚖️ 匹配权重</div>
+          <p className="text-xs text-slate-500 mb-4">决定打分时各维度的重要程度（匹配度 = 加权和）</p>
           <div className="space-y-3">
             {[
               { key: 'job_type', label: '岗位类型匹配' },
@@ -2684,39 +2739,6 @@ function ConfigPage({ state, setState, toast }) {
                 <span className="w-12 text-right text-sm font-semibold text-indigo-600">{state.preferencePriority[item.key]}</span>
               </div>
             ))}
-          </div>
-        </Card>
-
-        {/* 输出配置 */}
-        <Card className="p-5">
-          <div className="font-semibold mb-4">📤 输出配置</div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs text-slate-500">推送模式</label>
-              <select value={state.output.mode} onChange={e => update('output.mode', e.target.value)}
-                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="stable">稳定模式（至少推送 N 个）</option>
-                <option value="smart">智能模式（宁缺毋滥）</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs text-slate-500">每日最少推送数</label>
-              <input type="number" value={state.output.minCount} onChange={e => update('output.minCount', parseInt(e.target.value) || 0)}
-                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-            </div>
-            <div>
-              <label className="text-xs text-slate-500">搜索时间范围（小时）</label>
-              <input type="number" value={state.output.searchLookbackHours} onChange={e => update('output.searchLookbackHours', parseInt(e.target.value) || 72)}
-                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-            </div>
-            <div>
-              <label className="text-xs text-slate-500">JD 显示模式</label>
-              <select value={state.output.jdDisplayMode} onChange={e => update('output.jdDisplayMode', e.target.value)}
-                className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="full_text">完整 JD</option>
-                <option value="summary">AI 摘要</option>
-              </select>
-            </div>
           </div>
         </Card>
 
