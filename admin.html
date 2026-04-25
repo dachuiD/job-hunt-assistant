@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理员 - 求职小助</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+    margin: 0;
+    padding: 0;
+    background: #f5f6f8;
+    color: #1a1a1a;
+    line-height: 1.6;
+  }
+
+  /* 登录界面 */
+  .login-box {
+    max-width: 420px;
+    margin: 100px auto;
+    padding: 36px 32px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 24px rgba(0,0,0,.06);
+    text-align: center;
+  }
+  .login-box h1 { font-size: 22px; margin: 0 0 8px; }
+  .login-box .subtitle { color: #666; font-size: 13px; margin-bottom: 28px; }
+  .login-box input {
+    width: 100%;
+    padding: 12px 14px;
+    font-size: 14px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    outline: none;
+    transition: border-color .15s;
+  }
+  .login-box input:focus { border-color: #2563eb; }
+  .login-box button {
+    width: 100%;
+    padding: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    background: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .login-box button:hover { background: #1d4ed8; }
+  .login-box button:disabled { background: #9ca3af; cursor: not-allowed; }
+  .login-box .err { color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; padding: 10px; border-radius: 6px; margin-top: 12px; font-size: 13px; }
+
+  /* 主面板 */
+  .topbar {
+    background: white;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 12px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .topbar h1 { margin: 0; font-size: 18px; }
+  .topbar .logout { background: transparent; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+
+  .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap; }
+  .tabs button {
+    padding: 8px 14px;
+    border: 1px solid #d1d5db;
+    background: white;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .tabs button.active { background: #2563eb; color: white; border-color: #2563eb; }
+
+  .card {
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  }
+  .card h3 { margin: 0 0 12px; font-size: 15px; }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  .stat-item { background: #f7f8fa; border-radius: 8px; padding: 14px; }
+  .stat-item .label { font-size: 11px; color: #6b7280; }
+  .stat-item .value { font-size: 24px; font-weight: 700; color: #1a1a1a; margin-top: 4px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #f0f0f0; }
+  th { background: #f9fafb; font-weight: 600; color: #4b5563; font-size: 12px; }
+  tr:hover { background: #fafbfc; }
+
+  .mono { font-family: 'SF Mono', Monaco, 'Courier New', monospace; font-size: 11px; color: #6b7280; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+  .badge-ok { background: #dcfce7; color: #047857; }
+  .badge-err { background: #fee2e2; color: #b91c1c; }
+  .badge-info { background: #dbeafe; color: #1e40af; }
+
+  .btn { display: inline-block; padding: 8px 16px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .btn:hover { background: #1d4ed8; }
+  .btn-secondary { background: white; color: #1a1a1a; border: 1px solid #d1d5db; }
+  .btn-secondary:hover { background: #f7f8fa; }
+
+  .muted { color: #6b7280; font-size: 12px; }
+  pre { background: #111; color: #10b981; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 11px; white-space: pre-wrap; }
+
+  input, select { padding: 8px 12px; font-size: 13px; border: 1px solid #d1d5db; border-radius: 6px; outline: none; }
+  input:focus, select:focus { border-color: #2563eb; }
+
+  .loading { text-align: center; padding: 40px; color: #9ca3af; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<!-- 登录界面 -->
+<div id="loginView">
+  <div class="login-box">
+    <h1>🛡️ 管理员登录</h1>
+    <div class="subtitle">求职小助 · 管理员面板</div>
+    <input id="pwd" type="password" placeholder="输入管理员密码" />
+    <button id="loginBtn" onclick="login()">进入</button>
+    <div id="loginErr"></div>
+  </div>
+</div>
+
+<!-- 管理员面板 -->
+<div id="adminView" style="display:none;">
+  <div class="topbar">
+    <h1>🛡️ 管理员面板 · 求职小助</h1>
+    <button class="logout" onclick="logout()">退出</button>
+  </div>
+  <div class="container">
+    <div class="tabs">
+      <button id="tab-stats" class="active" onclick="switchTab('stats')">📊 数据看板</button>
+      <button id="tab-users" onclick="switchTab('users')">👥 用户</button>
+      <button id="tab-logs" onclick="switchTab('logs')">📋 LLM 日志</button>
+      <button id="tab-cron" onclick="switchTab('cron')">⏰ Cron 手动触发</button>
+      <button id="tab-config" onclick="switchTab('config')">⚙️ 配置</button>
+    </div>
+    <div id="tabContent"></div>
+  </div>
+</div>
+
+<script>
+  const API = location.origin;
+  const TOKEN_KEY = 'admin_token';
+
+  function token() { return localStorage.getItem(TOKEN_KEY); }
+  function api(path, options = {}) {
+    return fetch(API + path, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token(),
+        ...(options.headers || {}),
+      },
+    }).then(async r => {
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        if (r.status === 401) { logout(); }
+        throw new Error(data.error || data.message || 'HTTP ' + r.status);
+      }
+      return data;
+    });
+  }
+
+  async function login() {
+    const pwd = document.getElementById('pwd').value.trim();
+    const btn = document.getElementById('loginBtn');
+    const errBox = document.getElementById('loginErr');
+    errBox.innerHTML = '';
+    if (!pwd) { errBox.innerHTML = '<div class="err">请输入密码</div>'; return; }
+    btn.disabled = true; btn.textContent = '验证中...';
+    try {
+      const resp = await fetch(API + '/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pwd }),
+      });
+      const data = await resp.json();
+      if (data.ok && data.token) {
+        localStorage.setItem(TOKEN_KEY, data.token);
+        showAdmin();
+      } else {
+        errBox.innerHTML = '<div class="err">❌ ' + (data.error || '登录失败') + '</div>';
+      }
+    } catch (e) {
+      errBox.innerHTML = '<div class="err">❌ ' + e.message + '</div>';
+    } finally {
+      btn.disabled = false; btn.textContent = '进入';
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem(TOKEN_KEY);
+    document.getElementById('adminView').style.display = 'none';
+    document.getElementById('loginView').style.display = 'block';
+  }
+
+  function showAdmin() {
+    document.getElementById('loginView').style.display = 'none';
+    document.getElementById('adminView').style.display = 'block';
+    switchTab('stats');
+  }
+
+  // ===== 启动检查 =====
+  (async () => {
+    const t = token();
+    if (!t) return;
+    try {
+      await api('/api/admin/stats');
+      showAdmin();
+    } catch (_) {
+      // token 失效，保持登录界面
+    }
+  })();
+
+  // 回车登录
+  document.getElementById('pwd').addEventListener('keypress', e => {
+    if (e.key === 'Enter') login();
+  });
+
+  // ===== Tab 切换 =====
+  const tabs = ['stats', 'users', 'logs', 'cron', 'config'];
+  function switchTab(t) {
+    tabs.forEach(x => document.getElementById('tab-' + x).classList.toggle('active', x === t));
+    const content = document.getElementById('tabContent');
+    content.innerHTML = '<div class="loading">加载中...</div>';
+    if (t === 'stats') loadStats();
+    if (t === 'users') loadUsers();
+    if (t === 'logs') loadLogs();
+    if (t === 'cron') loadCron();
+    if (t === 'config') loadConfig();
+  }
+
+  // ===== 数据看板 =====
+  async function loadStats() {
+    try {
+      const r = await api('/api/admin/stats');
+      const s = r;
+      document.getElementById('tabContent').innerHTML = `
+        <div class="card">
+          <h3>用户</h3>
+          <div class="stats-grid">
+            <div class="stat-item"><div class="label">总用户</div><div class="value">${s.users?.total || 0}</div></div>
+            <div class="stat-item"><div class="label">今日活跃</div><div class="value">${s.users?.active_today || 0}</div></div>
+            <div class="stat-item"><div class="label">近7天活跃</div><div class="value">${s.users?.active_week || 0}</div></div>
+            <div class="stat-item"><div class="label">已引导</div><div class="value">${s.users?.onboarded || 0}</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>业务数据</h3>
+          <div class="stats-grid">
+            <div class="stat-item"><div class="label">简历总数</div><div class="value">${s.content?.resumes || 0}</div></div>
+            <div class="stat-item"><div class="label">JD 总数</div><div class="value">${s.content?.jds || 0}</div></div>
+            <div class="stat-item"><div class="label">岗位总数</div><div class="value">${s.content?.positions || 0}</div></div>
+            <div class="stat-item"><div class="label">复盘总数</div><div class="value">${s.content?.reviews || 0}</div></div>
+            <div class="stat-item"><div class="label">画像标签</div><div class="value">${s.content?.profile_tags || 0}</div></div>
+            <div class="stat-item"><div class="label">陪练题</div><div class="value">${s.content?.practice_questions || 0}</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>LLM 消耗</h3>
+          <div class="stats-grid">
+            <div class="stat-item"><div class="label">今日调用</div><div class="value">${s.llm?.calls_today || 0}</div></div>
+            <div class="stat-item"><div class="label">近7天</div><div class="value">${s.llm?.calls_week || 0}</div></div>
+            <div class="stat-item"><div class="label">近30天</div><div class="value">${s.llm?.calls_month || 0}</div></div>
+            <div class="stat-item"><div class="label">总 tokens</div><div class="value">${s.llm?.total_tokens || 0}</div></div>
+            <div class="stat-item"><div class="label">失败数</div><div class="value">${s.llm?.failed_total || 0}</div></div>
+          </div>
+        </div>
+      `;
+    } catch (e) {
+      document.getElementById('tabContent').innerHTML = '<div class="card"><div class="err">加载失败：' + e.message + '</div></div>';
+    }
+  }
+
+  // ===== 用户 =====
+  async function loadUsers() {
+    try {
+      const r = await api('/api/admin/users');
+      const rows = (r.users || []).map(u => `
+        <tr>
+          <td><div>${u.name || '未命名'}${u.is_admin === 1 ? ' <span class="badge badge-info">管理员</span>' : ''}</div><div class="muted">${u.email || '匿名'}</div></td>
+          <td class="mono">${u.id}</td>
+          <td>${u.jds_count || 0}</td>
+          <td>${u.positions_count || 0}</td>
+          <td>${u.reviews_count || 0}</td>
+          <td class="mono">${(u.last_active_at || '').slice(0, 16)}</td>
+          <td><button class="btn btn-secondary" onclick="showUserDetail('${u.id}')">详情</button></td>
+        </tr>`).join('');
+      document.getElementById('tabContent').innerHTML = `
+        <div class="card">
+          <h3>用户列表（${(r.users || []).length}）</h3>
+          <table>
+            <thead><tr><th>用户</th><th>ID</th><th>JD</th><th>岗位</th><th>复盘</th><th>最后活跃</th><th></th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="7" class="muted" style="text-align:center;padding:20px;">无数据</td></tr>'}</tbody>
+          </table>
+          <div id="userDetail"></div>
+        </div>
+      `;
+    } catch (e) {
+      document.getElementById('tabContent').innerHTML = '<div class="card"><div class="err">加载失败：' + e.message + '</div></div>';
+    }
+  }
+
+  async function showUserDetail(uid) {
+    const box = document.getElementById('userDetail');
+    box.innerHTML = '<div class="loading">加载用户详情...</div>';
+    try {
+      const r = await api('/api/admin/users/' + uid);
+      box.innerHTML = '<div class="card" style="margin-top:16px;"><h3>用户详情：' + uid + '</h3><pre>' + JSON.stringify(r, null, 2) + '</pre></div>';
+    } catch (e) {
+      box.innerHTML = '<div class="err">加载失败：' + e.message + '</div>';
+    }
+  }
+
+  // ===== LLM 日志 =====
+  async function loadLogs() {
+    document.getElementById('tabContent').innerHTML = `
+      <div class="card">
+        <h3>LLM 调用日志</h3>
+        <div style="margin-bottom:12px; display:flex; gap:8px; flex-wrap:wrap;">
+          <select id="logStatus"><option value="">全部状态</option><option value="success">成功</option><option value="failed">失败</option></select>
+          <select id="logPurpose">
+            <option value="">全部用途</option>
+            <option value="parse_resume">简历解析</option>
+            <option value="parse_jd">JD解析</option>
+            <option value="parse_jd_and_match">JD解析+粗匹配</option>
+            <option value="match_deep">深度匹配</option>
+            <option value="review_analyze">复盘分析</option>
+            <option value="profile_from_resume">画像-简历</option>
+            <option value="profile_from_jd">画像-JD</option>
+            <option value="profile_audit">画像自审</option>
+            <option value="practice_generate">陪练生成</option>
+            <option value="tavily_refine">Tavily精炼</option>
+            <option value="suggestion_generate">建议生成</option>
+          </select>
+          <button class="btn" onclick="refreshLogs()">刷新</button>
+        </div>
+        <div id="logTable" class="loading">加载中...</div>
+      </div>
+    `;
+    refreshLogs();
+  }
+
+  async function refreshLogs() {
+    try {
+      const status = document.getElementById('logStatus').value;
+      const purpose = document.getElementById('logPurpose').value;
+      const qs = new URLSearchParams({ limit: '100' });
+      if (status) qs.set('status', status);
+      if (purpose) qs.set('purpose', purpose);
+      const r = await api('/api/admin/llm-logs?' + qs);
+      const rows = (r.logs || []).map(l => `
+        <tr>
+          <td class="mono">${(l.created_at || '').slice(0, 16)}</td>
+          <td>${l.purpose || '-'}</td>
+          <td>${l.model || '-'}</td>
+          <td>${l.status === 'success' ? '<span class="badge badge-ok">成功</span>' : '<span class="badge badge-err">失败</span>'}</td>
+          <td>${l.tokens_total || 0}</td>
+          <td>${l.duration_ms || 0}ms</td>
+          <td class="mono">${(l.user_id || '-').slice(0, 10)}</td>
+        </tr>`).join('');
+      document.getElementById('logTable').innerHTML = `
+        <table>
+          <thead><tr><th>时间</th><th>用途</th><th>模型</th><th>状态</th><th>Token</th><th>耗时</th><th>用户</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="7" class="muted" style="text-align:center;padding:20px;">暂无日志</td></tr>'}</tbody>
+        </table>
+      `;
+    } catch (e) {
+      document.getElementById('logTable').innerHTML = '<div class="err">加载失败：' + e.message + '</div>';
+    }
+  }
+
+  // ===== Cron 手动触发 =====
+  async function loadCron() {
+    document.getElementById('tabContent').innerHTML = `
+      <div class="card">
+        <h3>Cron 手动触发</h3>
+        <p class="muted">每日任务：检查所有用户的未复盘提醒 + 符合条件的画像自审（可能消耗多次 Pro 配额）</p>
+        <button class="btn" onclick="runCron()">立即执行每日任务</button>
+        <div id="cronResult" style="margin-top:16px;"></div>
+      </div>
+    `;
+  }
+
+  async function runCron() {
+    if (!confirm('确认执行？会对所有符合条件的用户做画像自审，消耗 Pro 配额')) return;
+    const box = document.getElementById('cronResult');
+    box.innerHTML = '<div class="loading">执行中...</div>';
+    try {
+      const r = await api('/api/admin/cron/run-daily', { method: 'POST' });
+      box.innerHTML = '<pre>' + JSON.stringify(r.summary, null, 2) + '</pre>';
+    } catch (e) {
+      box.innerHTML = '<div class="err">执行失败：' + e.message + '</div>';
+    }
+  }
+
+  // ===== 配置 =====
+  async function loadConfig() {
+    try {
+      const r = await api('/api/admin/config');
+      document.getElementById('tabContent').innerHTML = `
+        <div class="card">
+          <h3>运行时配额</h3>
+          <p class="muted">修改仅在 Worker 运行期间生效；Worker 重启后恢复默认</p>
+          <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin-top:12px;">
+            <div>Flash 每日上限：<input id="flashQuota" type="number" value="${r.quota?.FAST || 50}" style="width:80px;" /></div>
+            <div>Pro 每日上限：<input id="proQuota" type="number" value="${r.quota?.PRO || 5}" style="width:80px;" /></div>
+            <button class="btn" onclick="saveConfig()">保存</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>模型配置</h3>
+          <pre>${JSON.stringify(r.models, null, 2)}</pre>
+        </div>
+      `;
+    } catch (e) {
+      document.getElementById('tabContent').innerHTML = '<div class="card"><div class="err">加载失败：' + e.message + '</div></div>';
+    }
+  }
+
+  async function saveConfig() {
+    try {
+      await api('/api/admin/config', {
+        method: 'POST',
+        body: JSON.stringify({
+          flash_quota: parseInt(document.getElementById('flashQuota').value),
+          pro_quota: parseInt(document.getElementById('proQuota').value),
+        }),
+      });
+      alert('已保存');
+      loadConfig();
+    } catch (e) {
+      alert('保存失败：' + e.message);
+    }
+  }
+</script>
+
+</body>
+</html>
