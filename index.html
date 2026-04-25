@@ -1265,29 +1265,45 @@ function JDsPage() {
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
   const [editor, setEditor] = useState(null);
+  const [bindingJd, setBindingJd] = useState(null);
 
   const load = async (query) => {
-    setLoading(true);
     try {
       const r = await apiCall('/api/jds' + (query ? '?q=' + encodeURIComponent(query) : ''));
       setList(r.jds || []);
     } catch (e) { toast(e.message, 'error'); }
-    setLoading(false);
   };
-  useEffect(() => { load(''); }, []);
+  useEffect(() => { load('').finally(() => setLoading(false)); }, []);
   useEffect(() => {
     const t = setTimeout(() => load(q), 300);
     return () => clearTimeout(t);
   }, [q]);
+
+  // 轮询：如果列表中有 processing 状态的 JD，每 3 秒重新拉取
+  useEffect(() => {
+    const hasProcessing = list.some(j => j.parse_status === 'processing');
+    if (!hasProcessing) return;
+    const timer = setInterval(() => load(q), 3000);
+    return () => clearInterval(timer);
+  }, [list, q]);
 
   const del = async (id, e) => {
     e.stopPropagation();
     if (!confirm('确定删除这个 JD？')) return;
     try {
       await apiCall('/api/jds/' + id, { method: 'DELETE' });
-      toast('已删除', 'success');
-      load(q);
+      toast('已删除', 'success'); load(q);
     } catch (e) { toast(e.message, 'error'); }
+  };
+
+  const runDeepMatch = async (id, e) => {
+    e.stopPropagation();
+    toast('正在生成深度分析...', 'info');
+    try {
+      await apiCall('/api/jds/' + id + '/match', { method: 'POST', body: JSON.stringify({}) });
+      toast('深度分析完成', 'success');
+      load(q);
+    } catch (e) { handleApiError(e, toast); }
   };
 
   return (
@@ -1314,7 +1330,7 @@ function JDsPage() {
           <EmptyState
             icon="💼"
             title={q ? '没有匹配的 JD' : '还没有 JD'}
-            desc={q ? '试试别的关键词' : '粘贴 JD 文本，AI 会自动解析并和你的主简历做匹配评估'}
+            desc={q ? '试试别的关键词' : '粘贴 JD 文本，AI 会在后台自动解析并评估匹配度'}
             action={!q && <Button variant="primary" onClick={() => setEditor({})}>粘贴第一个 JD</Button>}
           />
         </Card>
@@ -1322,32 +1338,64 @@ function JDsPage() {
         <div className="space-y-2">
           {list.map(j => {
             const quick = j.match_quick ? (typeof j.match_quick === 'string' ? JSON.parse(j.match_quick) : j.match_quick) : null;
+            const processing = j.parse_status === 'processing';
+            const failed = j.parse_status === 'failed';
             return (
-              <Card key={j.id} clickable onClick={() => navigate('jds/' + j.id)} className="p-4 flex items-center gap-3">
-                <MatchBand score={j.match_score} band={quick?.band || 'unknown'} size="md" />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-gray-900 truncate">{j.company || '未知公司'}</span>
-                    <span className="text-gray-500 truncate">· {j.position_title || '未知岗位'}</span>
-                    {j.job_type && <span className="text-[10px] text-gray-400 uppercase">{j.job_type}</span>}
+              <Card key={j.id} clickable={!processing} onClick={() => !processing && navigate('jds/' + j.id)} className="p-4">
+                <div className="flex items-center gap-3">
+                  {processing ? (
+                    <div className="w-1.5 h-8 rounded-full bg-gradient-to-b from-brand-400 to-brand-600 animate-pulse" />
+                  ) : (
+                    <MatchBand score={j.match_score} band={quick?.band || 'unknown'} size="md" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-gray-900 truncate">
+                        {j.company || <span className="text-gray-400 italic">未填公司名</span>}
+                      </span>
+                      {j.position_title && <span className="text-gray-500 truncate">· {j.position_title}</span>}
+                      {j.job_type && <span className="text-[10px] text-gray-400 uppercase">{j.job_type}</span>}
+                      {processing && <span className="text-[10px] text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded animate-pulse">AI 分析中...</span>}
+                      {failed && <span className="text-[10px] text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded">解析失败</span>}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">
+                      {j.city && <span className="mr-2">📍 {j.city}</span>}
+                      {quick?.summary && <span>{quick.summary}</span>}
+                      {processing && <span className="text-gray-400">后台跑中，稍等片刻自动刷新</span>}
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">
-                    {j.city && <span className="mr-2">📍 {j.city}</span>}
-                    {quick?.summary && <span>{quick.summary}</span>}
-                  </div>
+                  {j.has_deep_match === 1 && (
+                    <span className="px-1.5 py-0.5 text-[10px] rounded bg-accent-500/10 text-accent-600 font-semibold">已深度</span>
+                  )}
                 </div>
-                {j.has_deep_match === 1 && (
-                  <span className="px-1.5 py-0.5 text-[10px] rounded bg-accent-500/10 text-accent-600 font-semibold">已深度</span>
+
+                {/* 快捷按钮行（非 processing 状态）*/}
+                {!processing && (
+                  <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-1 flex-wrap">
+                    <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setBindingJd(j); }}>
+                      📌 加入看板
+                    </Button>
+                    {j.has_deep_match !== 1 && (
+                      <Button size="sm" variant="ghost" onClick={(e) => runDeepMatch(j.id, e)}>
+                        🔍 深度分析
+                      </Button>
+                    )}
+                    <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate('jds/' + j.id); }}>
+                      📄 查看
+                    </Button>
+                    <div className="flex-1" />
+                    <Button size="sm" variant="ghost" onClick={e => del(j.id, e)} className="text-rose-600 hover:bg-rose-50">
+                      删除
+                    </Button>
+                  </div>
                 )}
-                <button onClick={e => del(j.id, e)} className="text-gray-400 hover:text-rose-600 p-1 transition" title="删除">
-                  <Icon.X className="w-4 h-4" />
-                </button>
               </Card>
             );
           })}
         </div>
       )}
       {editor && <JDEditor onClose={() => setEditor(null)} onSaved={() => { setEditor(null); load(q); }} />}
+      {bindingJd && <BindToPositionModal jd={bindingJd} onClose={() => setBindingJd(null)} onDone={() => setBindingJd(null)} />}
     </div>
   );
 }
@@ -1355,15 +1403,30 @@ function JDsPage() {
 function JDEditor({ onClose, onSaved }) {
   const { toast } = useApp();
   const [rawText, setRawText] = useState('');
+  const [company, setCompany] = useState('');
+  const [positionTitle, setPositionTitle] = useState('');
+  const [createPosition, setCreatePosition] = useState(false);
+  const [positionStatus, setPositionStatus] = useState('pending');
   const [submitting, setSubmitting] = useState(false);
 
   const submit = async () => {
     if (rawText.trim().length < 20) return toast('JD 太短', 'error');
     setSubmitting(true);
     try {
-      const r = await apiCall('/api/jds', { method: 'POST', body: JSON.stringify({ raw_text: rawText }) });
-      if (r.ok) { toast('JD 已保存并评估', 'success'); onSaved(); }
-      else toast(r.error || '解析失败', 'error');
+      const body = {
+        raw_text: rawText,
+        company: company.trim() || undefined,
+        position_title: positionTitle.trim() || undefined,
+        create_position: createPosition,
+        position_status: createPosition ? positionStatus : undefined,
+      };
+      const r = await apiCall('/api/jds', { method: 'POST', body: JSON.stringify(body) });
+      if (r.ok) {
+        toast('JD 已保存，AI 正在后台分析', 'success');
+        onSaved();
+      } else {
+        toast(r.error || '保存失败', 'error');
+      }
     } catch (e) { handleApiError(e, toast); }
     setSubmitting(false);
   };
@@ -1371,17 +1434,51 @@ function JDEditor({ onClose, onSaved }) {
   return (
     <Modal open onClose={onClose} title="粘贴新 JD" maxWidth="max-w-2xl">
       <div className="space-y-3">
+        {/* 预填 */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-medium text-gray-700 mb-1 block">公司名（选填）</label>
+            <input className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
+              placeholder="如：字节跳动（不填 AI 自动识别）"
+              value={company} onChange={e => setCompany(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-700 mb-1 block">岗位名（选填）</label>
+            <input className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
+              placeholder="如：AI产品经理实习生"
+              value={positionTitle} onChange={e => setPositionTitle(e.target.value)} />
+          </div>
+        </div>
+
         <div>
           <label className="text-xs font-medium text-gray-700 mb-1 block">JD 文本</label>
-          <textarea className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm leading-relaxed" rows={14}
+          <textarea className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm leading-relaxed" rows={11}
             placeholder="从招聘网站/邮件/公众号复制岗位 JD 全文..."
             value={rawText} onChange={e => setRawText(e.target.value)} />
           <div className="text-xs text-gray-400 mt-1">{rawText.length} 字</div>
         </div>
+
+        {/* 同步到岗位看板 */}
+        <div className="rounded-lg border border-gray-200 p-3 bg-gray-50/50">
+          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+            <input type="checkbox" checked={createPosition} onChange={e => setCreatePosition(e.target.checked)} className="w-4 h-4 rounded accent-brand-600" />
+            同步到岗位看板
+          </label>
+          {createPosition && (
+            <div className="mt-2 pl-6">
+              <label className="text-xs font-medium text-gray-700 mb-1 block">投递状态</label>
+              <select className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white"
+                value={positionStatus} onChange={e => setPositionStatus(e.target.value)}>
+                {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+
         <div className="flex gap-2 justify-end">
           <Button variant="secondary" onClick={onClose}>取消</Button>
           <Button variant="primary" onClick={submit} disabled={submitting}>
-            {submitting ? 'AI 解析 + 评估中...' : '保存并评估'}
+            {submitting ? '保存中...' : '保存（AI 后台分析）'}
           </Button>
         </div>
       </div>
@@ -1397,16 +1494,23 @@ function JDDetailPage() {
   const [loading, setLoading] = useState(true);
   const [deepLoading, setDeepLoading] = useState(false);
   const [bindOpen, setBindOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   const load = async () => {
-    setLoading(true);
     try {
       const r = await apiCall('/api/jds/' + id);
       setJd(r.jd);
     } catch (e) { toast(e.message, 'error'); }
     setLoading(false);
   };
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => { setLoading(true); load(); }, [id]);
+
+  // 轮询：processing 状态时每 3 秒自动刷新
+  useEffect(() => {
+    if (jd?.parse_status !== 'processing') return;
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, [jd?.parse_status]);
 
   const runDeep = async () => {
     setDeepLoading(true);
@@ -1446,6 +1550,7 @@ function JDDetailPage() {
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
+            <Button size="sm" variant="secondary" onClick={() => setEditOpen(true)}>编辑</Button>
             <Button size="sm" variant="secondary" onClick={rerunQuick}>重算粗匹配</Button>
             <Button size="sm" variant="accent" onClick={() => setBindOpen(true)}>加入岗位看板</Button>
           </div>
@@ -1603,7 +1708,67 @@ function JDDetailPage() {
       </Card>
 
       {bindOpen && <BindToPositionModal jd={jd} onClose={() => setBindOpen(false)} onDone={() => setBindOpen(false)} />}
+      {editOpen && <JDEditModal jd={jd} onClose={() => setEditOpen(false)} onSaved={() => { setEditOpen(false); load(); }} />}
     </div>
+  );
+}
+
+function JDEditModal({ jd, onClose, onSaved }) {
+  const { toast } = useApp();
+  const [company, setCompany] = useState(jd.company || '');
+  const [positionTitle, setPositionTitle] = useState(jd.position_title || '');
+  const [rawText, setRawText] = useState(jd.raw_text || '');
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    setSubmitting(true);
+    try {
+      const body = {};
+      if (company !== (jd.company || '')) body.company = company;
+      if (positionTitle !== (jd.position_title || '')) body.position_title = positionTitle;
+      if (rawText !== jd.raw_text) body.raw_text = rawText;
+
+      if (Object.keys(body).length === 0) {
+        toast('没有改动', 'info');
+        onClose(); return;
+      }
+      const r = await apiCall('/api/jds/' + jd.id, { method: 'PUT', body: JSON.stringify(body) });
+      if (r.reparsing) toast('已保存，AI 正在重新分析', 'success');
+      else toast('已更新', 'success');
+      onSaved();
+    } catch (e) { handleApiError(e, toast); }
+    setSubmitting(false);
+  };
+
+  return (
+    <Modal open onClose={onClose} title="编辑 JD" maxWidth="max-w-2xl">
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-medium text-gray-700 mb-1 block">公司名</label>
+            <input className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
+              value={company} onChange={e => setCompany(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-700 mb-1 block">岗位名</label>
+            <input className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
+              value={positionTitle} onChange={e => setPositionTitle(e.target.value)} />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">JD 原文（修改会触发 AI 重新分析）</label>
+          <textarea rows={11} className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm leading-relaxed"
+            value={rawText} onChange={e => setRawText(e.target.value)} />
+          <div className="text-xs text-gray-400 mt-1">{rawText.length} 字</div>
+        </div>
+        <div className="flex gap-2 justify-end">
+          <Button variant="secondary" onClick={onClose}>取消</Button>
+          <Button variant="primary" onClick={submit} disabled={submitting}>
+            {submitting ? '保存中...' : '保存'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -1857,9 +2022,9 @@ function PositionDetailPage() {
           <MatchBand score={data.jd.match_score} band={scoreToBand(data.jd.match_score)} size="md" />
           <div className="flex-1 text-sm">
             <div className="text-gray-500 text-xs">关联 JD</div>
-            <div className="font-medium text-gray-900">{data.jd.company} · {data.jd.position_title}</div>
+            <div className="font-medium text-gray-900">{data.jd.company || '未填公司名'} · {data.jd.position_title || '未填岗位'}</div>
           </div>
-          <span className="text-xs text-gray-400">查看 →</span>
+          <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate('jds/' + data.jd.id); }}>编辑 JD →</Button>
         </Card>
       )}
 
@@ -2156,6 +2321,165 @@ function ReviewViewer({ reviewId, onClose }) {
   );
 }
 
+// ==================== 画像池 ====================
+const LAYER_META = {
+  stable:   { label: '稳定事实', desc: '几乎不变的身份/教育信息', color: 'bg-brand-50 border-brand-200 text-brand-700' },
+  skill:    { label: '技能标签', desc: '半年级别，从简历/项目里抽', color: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+  behavior: { label: '行为画像', desc: '月级别，从偏好/经历里推断', color: 'bg-purple-50 border-purple-200 text-purple-700' },
+  dynamic:  { label: '临时洞察', desc: '周级别，候选或待验证', color: 'bg-amber-50 border-amber-200 text-amber-700' },
+};
+
+function ProfilePage() {
+  const { toast } = useApp();
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [auditing, setAuditing] = useState(false);
+
+  const load = async () => {
+    try {
+      const r = await apiCall('/api/profile');
+      setData(r);
+    } catch (e) { toast(e.message, 'error'); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const runAudit = async () => {
+    if (!confirm('画像自审会调用 1 次深度 AI（约 20 秒）检查画像矛盾和陈旧标签，确定继续吗？')) return;
+    setAuditing(true);
+    try {
+      const r = await apiCall('/api/profile/audit', { method: 'POST' });
+      const msg = `自审完成 · 归档 ${r.tags_archived} 条陈旧 · 发现 ${r.conflicts?.length || 0} 处可疑`;
+      toast(msg, 'success', 5000);
+      load();
+    } catch (e) { handleApiError(e, toast); }
+    setAuditing(false);
+  };
+
+  const rejectTag = async (id) => {
+    if (!confirm('把这条画像标签删除？（后续不再引用）')) return;
+    try {
+      await apiCall('/api/profile/tags/' + id, { method: 'DELETE' });
+      toast('已删除', 'success');
+      load();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  if (loading) return <Card className="p-8 text-center text-gray-400 text-sm">加载中...</Card>;
+
+  const layers = data?.layers || { stable: [], skill: [], behavior: [], dynamic: [] };
+  const total = data?.total || 0;
+
+  return (
+    <div className="animate-slide-up space-y-5">
+      <PageHeader
+        title="我的画像"
+        desc={total + ' 条活跃标签 · AI 基于简历/JD/复盘累积学习'}
+        action={
+          <Button variant="secondary" onClick={runAudit} disabled={auditing}>
+            {auditing ? '自审中...' : '🔍 画像自审'}
+          </Button>
+        }
+      />
+
+      {total === 0 ? (
+        <Card className="p-0">
+          <EmptyState
+            icon="🧠"
+            title="画像还是空的"
+            desc="粘贴简历和 JD，AI 会自动抽取画像标签"
+          />
+        </Card>
+      ) : (
+        <div className="space-y-5">
+          {/* 四层展开 */}
+          {Object.entries(LAYER_META).map(([key, meta]) => {
+            const tags = layers[key] || [];
+            if (tags.length === 0) return null;
+            return (
+              <Card key={key} className="p-5">
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <div>
+                    <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                      <span className={'inline-block w-2 h-2 rounded-full ' + (key === 'stable' ? 'bg-brand-500' : key === 'skill' ? 'bg-emerald-500' : key === 'behavior' ? 'bg-purple-500' : 'bg-amber-500')} />
+                      {meta.label}
+                      <span className="text-xs font-normal text-gray-400">· {tags.length}</span>
+                    </h3>
+                    <div className="text-xs text-gray-500 mt-0.5">{meta.desc}</div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {tags.map(t => (
+                    <ProfileTagCard key={t.id} tag={t} onReject={() => rejectTag(t.id)} />
+                  ))}
+                </div>
+              </Card>
+            );
+          })}
+
+          {/* 自审历史 */}
+          {data?.last_audit && (
+            <Card className="p-4 bg-gray-50 border-gray-100">
+              <div className="text-xs text-gray-500">
+                上次自审：{new Date(data.last_audit.created_at).toLocaleString('zh-CN')}
+                · 归档 {data.last_audit.tags_archived} 条 · 发现 {data.last_audit.conflicts_found} 处可疑
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProfileTagCard({ tag, onReject }) {
+  const [expanded, setExpanded] = useState(false);
+  const confPercent = Math.round((tag.confidence || 0) * 100);
+
+  return (
+    <div className="rounded-lg border border-gray-100 hover:border-gray-200 transition p-3">
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-sm text-gray-900">{tag.key}</span>
+            {tag.value && <span className="text-xs text-gray-500">· {tag.value}</span>}
+            <span className="text-[10px] text-gray-400">
+              置信度
+              <span className={'ml-0.5 font-semibold ' + (confPercent >= 80 ? 'text-emerald-600' : confPercent >= 60 ? 'text-brand-600' : 'text-gray-500')}>
+                {confPercent}%
+              </span>
+            </span>
+          </div>
+          <div className="text-[10px] text-gray-400 mt-0.5">
+            {tag.category} · 更新于 {relTime(tag.last_updated_at)}
+            {tag.evidences?.length > 0 && <> · {tag.evidences.length} 条证据</>}
+          </div>
+        </div>
+        <div className="flex gap-1">
+          {tag.evidences?.length > 0 && (
+            <button onClick={() => setExpanded(!expanded)} className="text-xs text-gray-500 hover:text-gray-900 px-2 py-1 rounded hover:bg-gray-100 transition">
+              {expanded ? '收起' : '证据 →'}
+            </button>
+          )}
+          <button onClick={onReject} className="text-xs text-gray-400 hover:text-rose-600 px-2 py-1 rounded hover:bg-rose-50 transition" title="删除">
+            <Icon.X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+      {expanded && tag.evidences?.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-gray-100 space-y-1">
+          {tag.evidences.map(ev => (
+            <div key={ev.id} className="text-xs text-gray-600 pl-2 border-l-2 border-gray-200">
+              <span className="text-[10px] text-gray-400 mr-1">[{ev.source_type}]</span>
+              "{ev.quote}"
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ==================== 占位页面（后续轮次填充）====================
 function PlaceholderPage({ title, desc }) {
   return (
@@ -2181,7 +2505,7 @@ function Router() {
     case 'resumes': return <ResumesPage />;
     case 'jds': return hasId ? <JDDetailPage /> : <JDsPage />;
     case 'positions': return hasId ? <PositionDetailPage /> : <PositionsPage />;
-    case 'profile': return <PlaceholderPage title="我的画像" desc="4 层画像 + 证据锚点" />;
+    case 'profile': return <ProfilePage />;
     case 'practice': return <PlaceholderPage title="陪练题" desc="LLM 深挖 + Tavily 搜索真实面经 + 你自己粘贴" />;
     case 'suggestions': return <PlaceholderPage title="AI 建议" desc="基于画像的个性化行动建议" />;
     case 'notifications': return <PlaceholderPage title="通知中心" desc="状态变化 + 画像洞察 + AI 建议" />;
