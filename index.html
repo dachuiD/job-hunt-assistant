@@ -407,12 +407,12 @@ function Layout({ children }) {
                onClick={() => setSidebarOpen(false)} />
         )}
         <aside className={
-          'bg-white border-r border-gray-200 w-[220px] flex-shrink-0 z-40 ' +
+          'bg-white border-r border-gray-200 w-[220px] flex-shrink-0 z-40 flex flex-col ' +
           'md:sticky md:top-14 md:self-start md:h-[calc(100vh-3.5rem)] ' +
           'fixed top-14 bottom-0 left-0 transition-transform duration-300 ' +
           (sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0')
         }>
-          <nav className="p-3 flex flex-col gap-0.5">
+          <nav className="p-3 flex flex-col gap-0.5 flex-1">
             {menu.map(item => {
               const IconComp = item.icon;
               const active = currentRoot === item.key;
@@ -437,6 +437,12 @@ function Layout({ children }) {
               );
             })}
           </nav>
+          {/* 署名 */}
+          <div className="px-4 py-3 border-t border-gray-100 text-[11px] text-gray-400 leading-tight">
+            by dxh 同学
+            <span className="mx-1.5 text-gray-300">·</span>
+            v3.1
+          </div>
         </aside>
 
         {/* 主内容 */}
@@ -848,6 +854,1308 @@ function LaneCard({ label, count, color, items }) {
   );
 }
 
+// ==================== 通用组件 ====================
+
+function Card({ children, className = '', onClick, clickable }) {
+  return (
+    <div onClick={onClick}
+      className={'card-apple ' + (clickable ? 'clickable cursor-pointer ' : '') + 'bg-white rounded-xl border border-gray-200 shadow-soft ' + className}>
+      {children}
+    </div>
+  );
+}
+
+function Button({ children, onClick, variant = 'primary', size = 'md', disabled, className = '', type = 'button' }) {
+  const base = 'btn-apple inline-flex items-center justify-center font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed ';
+  const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-4 py-2 text-sm', lg: 'px-5 py-2.5 text-sm' };
+  const variants = {
+    primary: 'bg-brand-600 text-white hover:bg-brand-700 shadow-soft',
+    secondary: 'bg-white border border-gray-300 text-gray-800 hover:bg-gray-50',
+    ghost: 'text-gray-700 hover:bg-gray-100',
+    danger: 'bg-rose-600 text-white hover:bg-rose-700',
+    accent: 'bg-accent-500 text-white hover:bg-accent-600',
+  };
+  return (
+    <button type={type} onClick={onClick} disabled={disabled}
+      className={base + sizes[size] + ' ' + variants[variant] + ' ' + className}>{children}</button>
+  );
+}
+
+function EmptyState({ icon = '📄', title, desc, action }) {
+  return (
+    <div className="text-center py-12 px-4">
+      <div className="text-5xl mb-3 opacity-40">{icon}</div>
+      <div className="text-sm font-semibold text-gray-800">{title}</div>
+      {desc && <div className="text-xs text-gray-500 mt-1 max-w-sm mx-auto">{desc}</div>}
+      {action && <div className="mt-4">{action}</div>}
+    </div>
+  );
+}
+
+function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }) {
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => e.key === 'Escape' && onClose();
+    document.addEventListener('keydown', handler);
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', handler); document.body.style.overflow = ''; };
+  }, [open, onClose]);
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+      <div className={'bg-white rounded-2xl shadow-float w-full ' + maxWidth + ' max-h-[90vh] overflow-auto animate-scale-in'} onClick={e => e.stopPropagation()}>
+        {title && (
+          <div className="sticky top-0 bg-white/95 backdrop-blur border-b border-gray-100 px-5 py-3 flex items-center justify-between rounded-t-2xl">
+            <h3 className="font-semibold text-gray-900">{title}</h3>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-700 transition">
+              <Icon.X className="w-5 h-5" />
+            </button>
+          </div>
+        )}
+        <div className="p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function PageHeader({ title, desc, action }) {
+  return (
+    <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6">
+      <div>
+        <h1 className="text-2xl md:text-3xl font-semibold text-gray-900">{title}</h1>
+        {desc && <p className="text-sm text-gray-600 mt-1">{desc}</p>}
+      </div>
+      {action}
+    </div>
+  );
+}
+
+// 6 档色块
+const BAND_CONFIG = {
+  excellent: { color: 'bg-emerald-600', label: '极高匹配', text: 'text-emerald-700' },
+  great:     { color: 'bg-emerald-500', label: '高匹配',   text: 'text-emerald-600' },
+  good:      { color: 'bg-emerald-300', label: '中高匹配', text: 'text-emerald-600' },
+  fair:      { color: 'bg-amber-200',   label: '中等',     text: 'text-amber-700' },
+  low:       { color: 'bg-slate-300',   label: '偏低',     text: 'text-slate-600' },
+  poor:      { color: 'bg-slate-200',   label: '不匹配',   text: 'text-slate-500' },
+  unknown:   { color: 'bg-gray-100',    label: '未评估',   text: 'text-gray-400' },
+};
+function MatchBand({ score, band, size = 'sm', showLabel = false, showScore = false }) {
+  const cfg = BAND_CONFIG[band] || BAND_CONFIG.unknown;
+  const w = size === 'sm' ? 'w-1' : size === 'md' ? 'w-1.5' : 'w-2';
+  const h = size === 'sm' ? 'h-6' : size === 'md' ? 'h-8' : 'h-10';
+  return (
+    <div className="inline-flex items-center gap-2" title={cfg.label + (score != null ? ' · ' + score : '')}>
+      <span className={'rounded-full ' + cfg.color + ' ' + w + ' ' + h} />
+      {showScore && score != null && <span className="text-sm font-semibold text-gray-800">{score}</span>}
+      {showLabel && <span className={'text-xs font-medium ' + cfg.text}>{cfg.label}</span>}
+    </div>
+  );
+}
+
+// 分数转 band（前端本地计算，和后端 scoreToBand 保持一致）
+function scoreToBand(score) {
+  if (score == null) return 'unknown';
+  if (score >= 88) return 'excellent';
+  if (score >= 78) return 'great';
+  if (score >= 68) return 'good';
+  if (score >= 55) return 'fair';
+  if (score >= 40) return 'low';
+  return 'poor';
+}
+
+const STATUS_LABELS = {
+  pending: '待投递', applied: '已投递', written_test: '笔试中',
+  interview_1: '一面', interview_2: '二面', interview_3plus: '三面+',
+  offer: 'Offer', onboard: '已入职', rejected: '已拒绝', withdrawn: '主动放弃',
+};
+const STATUS_COLORS = {
+  pending: 'bg-gray-100 text-gray-700 border-gray-200',
+  applied: 'bg-brand-50 text-brand-700 border-brand-200',
+  written_test: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  interview_1: 'bg-purple-50 text-purple-700 border-purple-200',
+  interview_2: 'bg-purple-50 text-purple-700 border-purple-200',
+  interview_3plus: 'bg-purple-50 text-purple-700 border-purple-200',
+  offer: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  onboard: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+  rejected: 'bg-slate-100 text-slate-600 border-slate-200',
+  withdrawn: 'bg-slate-100 text-slate-500 border-slate-200',
+};
+function StatusBadge({ status }) {
+  const color = STATUS_COLORS[status] || STATUS_COLORS.pending;
+  return (
+    <span className={'inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border ' + color}>
+      {STATUS_LABELS[status] || status}
+    </span>
+  );
+}
+
+function relTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const diff = (Date.now() - d.getTime()) / 1000;
+  if (diff < 60) return '刚刚';
+  if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前';
+  if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前';
+  if (diff < 86400 * 30) return Math.floor(diff / 86400) + ' 天前';
+  return d.toLocaleDateString('zh-CN');
+}
+
+function handleApiError(err, toast, onQuotaExceeded) {
+  if (err.status === 429 && err.data?.error === 'quota_exceeded') {
+    if (onQuotaExceeded) onQuotaExceeded(err.data);
+    else toast(err.data.message || '今日 AI 额度已用完', 'error', 5000);
+    return;
+  }
+  toast(err.message || '操作失败', 'error');
+}
+
+function Section({ title, children }) {
+  return (
+    <div>
+      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{title}</div>
+      {children}
+    </div>
+  );
+}
+
+// ==================== 页面：简历管理 ====================
+function ResumesPage() {
+  const { toast } = useApp();
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editor, setEditor] = useState(null);
+  const [viewing, setViewing] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await apiCall('/api/resumes');
+      setList(r.resumes || []);
+    } catch (e) { toast(e.message, 'error'); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const del = async (id) => {
+    if (!confirm('确定删除这份简历？')) return;
+    try {
+      await apiCall('/api/resumes/' + id, { method: 'DELETE' });
+      toast('已删除', 'success'); load();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  const setPrimary = async (id) => {
+    try {
+      await apiCall('/api/resumes/' + id, {
+        method: 'PUT',
+        body: JSON.stringify({ is_primary: true }),
+      });
+      toast('已设为主简历', 'success'); load();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  return (
+    <div className="animate-slide-up">
+      <PageHeader
+        title="简历管理"
+        desc={"最多 " + list.length + "/5 份 · 粘贴文本，AI 自动结构化解析"}
+        action={
+          <Button variant="primary" onClick={() => setEditor({ mode: 'new' })} disabled={list.length >= 5}>
+            <Icon.Plus className="w-4 h-4 mr-1" /> 粘贴新简历
+          </Button>
+        }
+      />
+      {loading ? (
+        <Card className="p-8 text-center text-gray-400 text-sm">加载中...</Card>
+      ) : list.length === 0 ? (
+        <Card className="p-0">
+          <EmptyState
+            icon="📄" title="还没有简历"
+            desc="粘贴你的简历文本，AI 会自动提取结构化信息"
+            action={<Button variant="primary" onClick={() => setEditor({ mode: 'new' })}>粘贴第一份简历</Button>}
+          />
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {list.map(r => (
+            <Card key={r.id} className="p-4">
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <span className="font-semibold text-gray-900 truncate">{r.title}</span>
+                {r.is_primary === 1 && (
+                  <span className="px-1.5 py-0.5 text-[10px] rounded bg-brand-50 text-brand-700 font-semibold border border-brand-200">主简历</span>
+                )}
+                {r.parse_status === 'processing' && <span className="text-[10px] text-gray-400">解析中...</span>}
+                {r.parse_status === 'failed' && <span className="text-[10px] text-rose-500">解析失败</span>}
+              </div>
+              <div className="text-xs text-gray-500 mb-2">{relTime(r.updated_at)}</div>
+              <div className="text-xs text-gray-600 line-clamp-3 leading-relaxed mb-3 min-h-[3rem]">{r.preview}</div>
+              <div className="flex gap-1 flex-wrap">
+                <Button size="sm" variant="ghost" onClick={() => setViewing(r)}>查看</Button>
+                <Button size="sm" variant="ghost" onClick={() => setEditor({ mode: 'edit', data: r })}>编辑</Button>
+                {r.is_primary !== 1 && <Button size="sm" variant="ghost" onClick={() => setPrimary(r.id)}>设主</Button>}
+                <div className="flex-1" />
+                <Button size="sm" variant="ghost" onClick={() => del(r.id)} className="text-rose-600 hover:bg-rose-50">删除</Button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+      {editor && <ResumeEditor mode={editor.mode} data={editor.data} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); load(); }} />}
+      {viewing && <ResumeViewer resumeId={viewing.id} onClose={() => setViewing(null)} />}
+    </div>
+  );
+}
+
+function ResumeEditor({ mode, data, onClose, onSaved }) {
+  const { toast } = useApp();
+  const [title, setTitle] = useState(data?.title || '');
+  const [rawText, setRawText] = useState('');
+  const [isPrimary, setIsPrimary] = useState(data?.is_primary === 1);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (mode === 'edit' && data?.id) {
+      apiCall('/api/resumes/' + data.id).then(r => setRawText(r.resume.raw_text || '')).catch(() => {});
+    }
+  }, [mode, data]);
+
+  const submit = async () => {
+    if (rawText.trim().length < 20) return toast('简历太短', 'error');
+    setSubmitting(true);
+    try {
+      if (mode === 'new') {
+        const r = await apiCall('/api/resumes', {
+          method: 'POST',
+          body: JSON.stringify({ title: title.trim() || '未命名简历', raw_text: rawText, is_primary: isPrimary }),
+        });
+        if (r.ok) { toast('保存并解析完成', 'success'); onSaved(); }
+        else { toast(r.error || '解析失败', 'error'); onSaved(); }
+      } else {
+        const payload = { title: title.trim(), raw_text: rawText };
+        if (isPrimary) payload.is_primary = true;
+        await apiCall('/api/resumes/' + data.id, { method: 'PUT', body: JSON.stringify(payload) });
+        toast('已更新', 'success'); onSaved();
+      }
+    } catch (e) { handleApiError(e, toast); }
+    setSubmitting(false);
+  };
+
+  return (
+    <Modal open onClose={onClose} title={mode === 'new' ? '粘贴新简历' : '编辑简历'} maxWidth="max-w-2xl">
+      <div className="space-y-4">
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">简历标题</label>
+          <input className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
+            placeholder="如：产品岗主简历" value={title} onChange={e => setTitle(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">简历内容（粘贴纯文本）</label>
+          <textarea className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm leading-relaxed" rows={12}
+            placeholder="粘贴完整简历文本，AI 会自动识别并结构化..."
+            value={rawText} onChange={e => setRawText(e.target.value)} />
+          <div className="text-xs text-gray-400 mt-1">{rawText.length} 字</div>
+        </div>
+        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+          <input type="checkbox" checked={isPrimary} onChange={e => setIsPrimary(e.target.checked)} className="w-4 h-4 rounded accent-brand-600" />
+          设为主简历（用于 JD 匹配默认简历）
+        </label>
+        <div className="flex gap-2 justify-end">
+          <Button variant="secondary" onClick={onClose}>取消</Button>
+          <Button variant="primary" onClick={submit} disabled={submitting}>
+            {submitting ? (mode === 'new' ? 'AI 解析中...' : '保存中...') : (mode === 'new' ? '保存并解析' : '保存')}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ResumeViewer({ resumeId, onClose }) {
+  const [resume, setResume] = useState(null);
+  useEffect(() => { apiCall('/api/resumes/' + resumeId).then(r => setResume(r.resume)); }, [resumeId]);
+  const p = resume?.parsed;
+  return (
+    <Modal open onClose={onClose} title={resume?.title || '简历详情'} maxWidth="max-w-2xl">
+      {!resume ? (
+        <div className="text-sm text-gray-400 py-4 text-center">加载中...</div>
+      ) : !p ? (
+        <div>
+          <div className="text-xs text-gray-500 mb-2">AI 解析结果暂无，显示原文：</div>
+          <pre className="text-xs bg-gray-50 rounded p-3 whitespace-pre-wrap leading-relaxed">{resume.raw_text}</pre>
+        </div>
+      ) : (
+        <div className="space-y-5 text-sm">
+          {p.basic && (
+            <Section title="基础信息">
+              <div className="grid grid-cols-2 gap-2 text-xs text-gray-700">
+                {p.basic.name && <div><span className="text-gray-400">姓名：</span>{p.basic.name}</div>}
+                {p.basic.email && <div><span className="text-gray-400">邮箱：</span>{p.basic.email}</div>}
+                {p.basic.phone && <div><span className="text-gray-400">电话：</span>{p.basic.phone}</div>}
+                {p.basic.city && <div><span className="text-gray-400">城市：</span>{p.basic.city}</div>}
+              </div>
+            </Section>
+          )}
+          {p.education?.length > 0 && (
+            <Section title="教育经历">
+              {p.education.map((e, i) => (
+                <div key={i} className="mb-2 text-xs">
+                  <div className="font-medium text-gray-900">{e.school} · {e.major} · {e.degree}</div>
+                  <div className="text-gray-500">{e.period}{e.gpa ? ' · ' + e.gpa : ''}</div>
+                </div>
+              ))}
+            </Section>
+          )}
+          {p.experiences?.length > 0 && (
+            <Section title="工作/实习">
+              {p.experiences.map((e, i) => (
+                <div key={i} className="mb-3">
+                  <div className="font-medium text-sm text-gray-900">{e.company} · {e.role}</div>
+                  <div className="text-xs text-gray-500 mb-1">{e.period}</div>
+                  {e.description && <div className="text-xs text-gray-700 mb-1">{e.description}</div>}
+                  {e.achievements?.length > 0 && (
+                    <ul className="text-xs text-gray-600 ml-4 list-disc">
+                      {e.achievements.map((a, j) => <li key={j}>{a}</li>)}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </Section>
+          )}
+          {p.projects?.length > 0 && (
+            <Section title="项目">
+              {p.projects.map((e, i) => (
+                <div key={i} className="mb-2">
+                  <div className="font-medium text-sm text-gray-900">{e.name}{e.role ? ' · ' + e.role : ''}</div>
+                  <div className="text-xs text-gray-500">{e.period}</div>
+                  {e.description && <div className="text-xs text-gray-700 mt-0.5">{e.description}</div>}
+                  {e.tech_stack?.length > 0 && (
+                    <div className="mt-1 flex gap-1 flex-wrap">
+                      {e.tech_stack.map((t, j) => <span key={j} className="px-1.5 py-0.5 rounded bg-brand-50 text-brand-700 text-[10px]">{t}</span>)}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </Section>
+          )}
+          {p.skills?.length > 0 && (
+            <Section title="技能">
+              <div className="flex gap-1.5 flex-wrap">
+                {p.skills.map((s, i) => <span key={i} className="px-2 py-0.5 rounded bg-gray-100 text-gray-700 text-xs">{s}</span>)}
+              </div>
+            </Section>
+          )}
+          {p.awards?.length > 0 && (
+            <Section title="获奖/证书">
+              <ul className="text-xs text-gray-700 ml-4 list-disc">
+                {p.awards.map((a, i) => <li key={i}>{a}</li>)}
+              </ul>
+            </Section>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// ==================== 页面：JD 库 ====================
+function JDsPage() {
+  const { toast, navigate } = useApp();
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState('');
+  const [editor, setEditor] = useState(null);
+
+  const load = async (query) => {
+    setLoading(true);
+    try {
+      const r = await apiCall('/api/jds' + (query ? '?q=' + encodeURIComponent(query) : ''));
+      setList(r.jds || []);
+    } catch (e) { toast(e.message, 'error'); }
+    setLoading(false);
+  };
+  useEffect(() => { load(''); }, []);
+  useEffect(() => {
+    const t = setTimeout(() => load(q), 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const del = async (id, e) => {
+    e.stopPropagation();
+    if (!confirm('确定删除这个 JD？')) return;
+    try {
+      await apiCall('/api/jds/' + id, { method: 'DELETE' });
+      toast('已删除', 'success');
+      load(q);
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  return (
+    <div className="animate-slide-up">
+      <PageHeader
+        title="JD 库"
+        desc="粘贴岗位 JD · 自动色块评估 · 支持深度匹配分析"
+        action={
+          <Button variant="primary" onClick={() => setEditor({})}>
+            <Icon.Plus className="w-4 h-4 mr-1" /> 粘贴新 JD
+          </Button>
+        }
+      />
+      <div className="mb-4">
+        <input
+          className="w-full max-w-sm px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white"
+          placeholder="搜索公司/岗位名..."
+          value={q} onChange={e => setQ(e.target.value)} />
+      </div>
+      {loading ? (
+        <Card className="p-8 text-center text-gray-400 text-sm">加载中...</Card>
+      ) : list.length === 0 ? (
+        <Card className="p-0">
+          <EmptyState
+            icon="💼"
+            title={q ? '没有匹配的 JD' : '还没有 JD'}
+            desc={q ? '试试别的关键词' : '粘贴 JD 文本，AI 会自动解析并和你的主简历做匹配评估'}
+            action={!q && <Button variant="primary" onClick={() => setEditor({})}>粘贴第一个 JD</Button>}
+          />
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {list.map(j => {
+            const quick = j.match_quick ? (typeof j.match_quick === 'string' ? JSON.parse(j.match_quick) : j.match_quick) : null;
+            return (
+              <Card key={j.id} clickable onClick={() => navigate('jds/' + j.id)} className="p-4 flex items-center gap-3">
+                <MatchBand score={j.match_score} band={quick?.band || 'unknown'} size="md" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-gray-900 truncate">{j.company || '未知公司'}</span>
+                    <span className="text-gray-500 truncate">· {j.position_title || '未知岗位'}</span>
+                    {j.job_type && <span className="text-[10px] text-gray-400 uppercase">{j.job_type}</span>}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">
+                    {j.city && <span className="mr-2">📍 {j.city}</span>}
+                    {quick?.summary && <span>{quick.summary}</span>}
+                  </div>
+                </div>
+                {j.has_deep_match === 1 && (
+                  <span className="px-1.5 py-0.5 text-[10px] rounded bg-accent-500/10 text-accent-600 font-semibold">已深度</span>
+                )}
+                <button onClick={e => del(j.id, e)} className="text-gray-400 hover:text-rose-600 p-1 transition" title="删除">
+                  <Icon.X className="w-4 h-4" />
+                </button>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+      {editor && <JDEditor onClose={() => setEditor(null)} onSaved={() => { setEditor(null); load(q); }} />}
+    </div>
+  );
+}
+
+function JDEditor({ onClose, onSaved }) {
+  const { toast } = useApp();
+  const [rawText, setRawText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    if (rawText.trim().length < 20) return toast('JD 太短', 'error');
+    setSubmitting(true);
+    try {
+      const r = await apiCall('/api/jds', { method: 'POST', body: JSON.stringify({ raw_text: rawText }) });
+      if (r.ok) { toast('JD 已保存并评估', 'success'); onSaved(); }
+      else toast(r.error || '解析失败', 'error');
+    } catch (e) { handleApiError(e, toast); }
+    setSubmitting(false);
+  };
+
+  return (
+    <Modal open onClose={onClose} title="粘贴新 JD" maxWidth="max-w-2xl">
+      <div className="space-y-3">
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">JD 文本</label>
+          <textarea className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm leading-relaxed" rows={14}
+            placeholder="从招聘网站/邮件/公众号复制岗位 JD 全文..."
+            value={rawText} onChange={e => setRawText(e.target.value)} />
+          <div className="text-xs text-gray-400 mt-1">{rawText.length} 字</div>
+        </div>
+        <div className="flex gap-2 justify-end">
+          <Button variant="secondary" onClick={onClose}>取消</Button>
+          <Button variant="primary" onClick={submit} disabled={submitting}>
+            {submitting ? 'AI 解析 + 评估中...' : '保存并评估'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ==================== JD 详情页 ====================
+function JDDetailPage() {
+  const { route, navigate, toast } = useApp();
+  const id = route.split('/')[1];
+  const [jd, setJd] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [deepLoading, setDeepLoading] = useState(false);
+  const [bindOpen, setBindOpen] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await apiCall('/api/jds/' + id);
+      setJd(r.jd);
+    } catch (e) { toast(e.message, 'error'); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [id]);
+
+  const runDeep = async () => {
+    setDeepLoading(true);
+    try {
+      await apiCall('/api/jds/' + id + '/match', { method: 'POST', body: JSON.stringify({}) });
+      toast('深度分析完成', 'success');
+      load();
+    } catch (e) { handleApiError(e, toast); }
+    setDeepLoading(false);
+  };
+
+  const rerunQuick = async () => {
+    try {
+      await apiCall('/api/jds/' + id + '/quick-match', { method: 'POST', body: JSON.stringify({}) });
+      toast('粗匹配已更新', 'success');
+      load();
+    } catch (e) { handleApiError(e, toast); }
+  };
+
+  if (loading || !jd) return <Card className="p-8 text-center text-gray-400 text-sm">加载中...</Card>;
+
+  const quick = jd.match_quick;
+  const deep = jd.match_detail;
+
+  return (
+    <div className="animate-slide-up space-y-5">
+      <button onClick={() => navigate('jds')} className="text-sm text-gray-500 hover:text-gray-900 transition">← 返回 JD 库</button>
+
+      <Card className="p-5">
+        <div className="flex items-start gap-3 flex-wrap">
+          {quick && <MatchBand score={jd.match_score} band={quick.band} size="lg" showScore showLabel />}
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl md:text-2xl font-semibold text-gray-900">{jd.company || '未知公司'}</h1>
+            <div className="text-sm text-gray-600 mt-0.5">
+              {jd.position_title || '未知岗位'}
+              {jd.city && <span className="ml-2 text-gray-400">📍 {jd.city}</span>}
+            </div>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <Button size="sm" variant="secondary" onClick={rerunQuick}>重算粗匹配</Button>
+            <Button size="sm" variant="accent" onClick={() => setBindOpen(true)}>加入岗位看板</Button>
+          </div>
+        </div>
+      </Card>
+
+      {quick && (
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-gray-900">快速评估</h3>
+            <span className="text-xs text-gray-500">{quick.summary}</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div>
+              <div className="text-xs text-emerald-700 font-semibold mb-1">✓ 匹配关键词</div>
+              {quick.matched_keywords?.length > 0 ? (
+                <div className="flex gap-1 flex-wrap">
+                  {quick.matched_keywords.map((k, i) => <span key={i} className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 text-xs">{k}</span>)}
+                </div>
+              ) : <div className="text-xs text-gray-400">无</div>}
+            </div>
+            <div>
+              <div className="text-xs text-amber-700 font-semibold mb-1">✗ 缺失关键词</div>
+              {quick.missing_keywords?.length > 0 ? (
+                <div className="flex gap-1 flex-wrap">
+                  {quick.missing_keywords.map((k, i) => <span key={i} className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-xs">{k}</span>)}
+                </div>
+              ) : <div className="text-xs text-gray-400">无</div>}
+            </div>
+          </div>
+        </Card>
+      )}
+
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-gray-900">深度匹配分析</h3>
+          <span className="text-xs text-gray-500">Pro · 消耗 1 次深度配额</span>
+        </div>
+        {!deep ? (
+          <div className="py-6 text-center">
+            <div className="text-sm text-gray-500 mb-3">AI 结合简历原文做证据级分析</div>
+            <Button variant="primary" onClick={runDeep} disabled={deepLoading}>
+              {deepLoading ? 'AI 分析中（约 20 秒）...' : '生成深度分析'}
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4 text-sm">
+            <div className="p-3 rounded-lg bg-gray-50 text-gray-800 italic">{deep.summary}</div>
+            {deep.matched?.length > 0 && (
+              <div>
+                <div className="text-xs font-semibold text-emerald-700 mb-2">✓ 匹配点（{deep.matched.length}）</div>
+                <div className="space-y-2">
+                  {deep.matched.map((m, i) => (
+                    <div key={i} className="border-l-2 border-emerald-400 pl-3 text-xs">
+                      <div className="font-medium text-gray-900">{typeof m === 'string' ? m : m.point}</div>
+                      {m.resume_evidence && <div className="text-gray-500 mt-0.5">📄 {m.resume_evidence}</div>}
+                      {m.jd_evidence && <div className="text-gray-500">💼 {m.jd_evidence}</div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {deep.missing?.length > 0 && (
+              <div>
+                <div className="text-xs font-semibold text-amber-700 mb-2">✗ 缺失能力（{deep.missing.length}）</div>
+                <div className="space-y-2">
+                  {deep.missing.map((m, i) => (
+                    <div key={i} className="border-l-2 border-amber-400 pl-3 text-xs">
+                      <div className="font-medium text-gray-900 flex items-center gap-2 flex-wrap">
+                        {typeof m === 'string' ? m : m.gap}
+                        {m.severity && (
+                          <span className={
+                            'px-1.5 py-0.5 rounded text-[10px] ' +
+                            (m.severity === 'critical' ? 'bg-rose-100 text-rose-700' :
+                             m.severity === 'major' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600')
+                          }>
+                            {m.severity === 'critical' ? '严重' : m.severity === 'major' ? '主要' : '次要'}
+                          </span>
+                        )}
+                      </div>
+                      {m.jd_requirement && <div className="text-gray-500 mt-0.5">JD 要求：{m.jd_requirement}</div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {deep.red_flags?.length > 0 && (
+              <div>
+                <div className="text-xs font-semibold text-rose-700 mb-2">⚠️ 风险点</div>
+                <ul className="text-xs text-gray-700 ml-4 list-disc space-y-1">
+                  {deep.red_flags.map((r, i) => <li key={i}>{r}</li>)}
+                </ul>
+              </div>
+            )}
+            {deep.suggestions?.length > 0 && (
+              <div>
+                <div className="text-xs font-semibold text-brand-700 mb-2">💡 改进建议</div>
+                <ul className="text-xs text-gray-700 ml-4 list-disc space-y-1">
+                  {deep.suggestions.map((s, i) => <li key={i}>{s}</li>)}
+                </ul>
+              </div>
+            )}
+            <div className="pt-2 border-t border-gray-100">
+              <Button size="sm" variant="ghost" onClick={runDeep} disabled={deepLoading}>
+                {deepLoading ? '重新分析中...' : '重新分析'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-gray-900">JD 详情</h3>
+        </div>
+        {jd.parsed ? (
+          <div className="space-y-3 text-sm">
+            {jd.parsed.responsibilities?.length > 0 && (
+              <Section title="岗位职责">
+                <ul className="text-xs text-gray-700 ml-4 list-disc space-y-0.5">
+                  {jd.parsed.responsibilities.map((r, i) => <li key={i}>{r}</li>)}
+                </ul>
+              </Section>
+            )}
+            {jd.parsed.requirements?.length > 0 && (
+              <Section title="任职要求">
+                <ul className="text-xs text-gray-700 ml-4 list-disc space-y-0.5">
+                  {jd.parsed.requirements.map((r, i) => <li key={i}>{r}</li>)}
+                </ul>
+              </Section>
+            )}
+            {jd.parsed.preferred?.length > 0 && (
+              <Section title="加分项">
+                <ul className="text-xs text-gray-700 ml-4 list-disc space-y-0.5">
+                  {jd.parsed.preferred.map((r, i) => <li key={i}>{r}</li>)}
+                </ul>
+              </Section>
+            )}
+            {jd.parsed.tech_stack?.length > 0 && (
+              <Section title="技术栈">
+                <div className="flex gap-1 flex-wrap">
+                  {jd.parsed.tech_stack.map((t, i) => <span key={i} className="px-2 py-0.5 rounded bg-brand-50 text-brand-700 text-xs">{t}</span>)}
+                </div>
+              </Section>
+            )}
+            <div className="grid grid-cols-3 gap-2 text-xs pt-2 border-t border-gray-100">
+              {jd.parsed.salary && <div><span className="text-gray-400">薪资：</span>{jd.parsed.salary}</div>}
+              {jd.parsed.duration && <div><span className="text-gray-400">时长：</span>{jd.parsed.duration}</div>}
+              {jd.parsed.working_days && <div><span className="text-gray-400">到岗：</span>{jd.parsed.working_days}</div>}
+            </div>
+          </div>
+        ) : (
+          <pre className="text-xs text-gray-700 bg-gray-50 p-3 rounded whitespace-pre-wrap leading-relaxed">{jd.raw_text}</pre>
+        )}
+      </Card>
+
+      {bindOpen && <BindToPositionModal jd={jd} onClose={() => setBindOpen(false)} onDone={() => setBindOpen(false)} />}
+    </div>
+  );
+}
+
+function BindToPositionModal({ jd, onClose, onDone }) {
+  const { toast, navigate } = useApp();
+  const [status, setStatus] = useState('pending');
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    setSubmitting(true);
+    try {
+      const r = await apiCall('/api/positions', {
+        method: 'POST',
+        body: JSON.stringify({
+          jd_id: jd.id, company: jd.company, position_title: jd.position_title, status,
+        }),
+      });
+      toast('已加入岗位看板', 'success');
+      navigate('positions/' + r.id);
+      onDone();
+    } catch (e) { handleApiError(e, toast); }
+    setSubmitting(false);
+  };
+
+  return (
+    <Modal open onClose={onClose} title="加入岗位看板">
+      <div className="space-y-3">
+        <div className="text-sm text-gray-700">
+          将 <b>{jd.company} · {jd.position_title}</b> 加入岗位看板
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">初始状态</label>
+          <select className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white"
+            value={status} onChange={e => setStatus(e.target.value)}>
+            <option value="pending">待投递</option>
+            <option value="applied">已投递</option>
+            <option value="written_test">笔试中</option>
+            <option value="interview_1">一面</option>
+          </select>
+        </div>
+        <div className="flex gap-2 justify-end">
+          <Button variant="secondary" onClick={onClose}>取消</Button>
+          <Button variant="primary" onClick={submit} disabled={submitting}>加入</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ==================== 页面：岗位看板 ====================
+const POSITION_LANES = [
+  { key: 'pending', label: '待投递', statuses: ['pending'] },
+  { key: 'applied', label: '已投递', statuses: ['applied'] },
+  { key: 'test', label: '笔试/面试', statuses: ['written_test', 'interview_1', 'interview_2', 'interview_3plus'] },
+  { key: 'offer', label: 'Offer/入职', statuses: ['offer', 'onboard'] },
+  { key: 'closed', label: '已结束', statuses: ['rejected', 'withdrawn'] },
+];
+
+function PositionsPage() {
+  const { toast, navigate } = useApp();
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [newModal, setNewModal] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await apiCall('/api/positions');
+      setList(r.positions || []);
+    } catch (e) { toast(e.message, 'error'); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const groups = useMemo(() => {
+    const m = {};
+    for (const lane of POSITION_LANES) m[lane.key] = [];
+    for (const p of list) {
+      for (const lane of POSITION_LANES) {
+        if (lane.statuses.includes(p.status)) { m[lane.key].push(p); break; }
+      }
+    }
+    return m;
+  }, [list]);
+
+  return (
+    <div className="animate-slide-up">
+      <PageHeader
+        title="岗位看板"
+        desc={list.length + ' 个岗位 · 点击进入详情'}
+        action={
+          <Button variant="primary" onClick={() => setNewModal(true)}>
+            <Icon.Plus className="w-4 h-4 mr-1" /> 手动添加
+          </Button>
+        }
+      />
+      {loading ? (
+        <Card className="p-8 text-center text-gray-400 text-sm">加载中...</Card>
+      ) : list.length === 0 ? (
+        <Card className="p-0">
+          <EmptyState
+            icon="📌" title="还没有岗位"
+            desc="从 JD 库选「加入看板」，或手动添加一个你正在准备的岗位"
+            action={
+              <div className="flex gap-2 justify-center">
+                <Button variant="secondary" onClick={() => navigate('jds')}>去 JD 库</Button>
+                <Button variant="primary" onClick={() => setNewModal(true)}>手动添加</Button>
+              </div>
+            }
+          />
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          {POSITION_LANES.map(lane => (
+            <div key={lane.key} className="min-w-0">
+              <div className="flex items-center justify-between mb-2 px-1">
+                <span className="text-sm font-semibold text-gray-700">{lane.label}</span>
+                <span className="text-xs text-gray-400">{groups[lane.key].length}</span>
+              </div>
+              <div className="space-y-2">
+                {groups[lane.key].map(p => (
+                  <Card key={p.id} clickable onClick={() => navigate('positions/' + p.id)} className="p-3">
+                    <div className="font-medium text-sm text-gray-900 truncate">{p.company}</div>
+                    <div className="text-xs text-gray-500 truncate">{p.position_title}</div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <StatusBadge status={p.status} />
+                      {p.review_count > 0 && <span className="text-[10px] text-gray-400">📝 {p.review_count}</span>}
+                    </div>
+                  </Card>
+                ))}
+                {groups[lane.key].length === 0 && (
+                  <div className="text-xs text-gray-300 text-center py-3">—</div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {newModal && <PositionCreateModal onClose={() => setNewModal(false)} onDone={() => { setNewModal(false); load(); }} />}
+    </div>
+  );
+}
+
+function PositionCreateModal({ onClose, onDone }) {
+  const { toast } = useApp();
+  const [form, setForm] = useState({ company: '', position_title: '', status: 'pending' });
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    if (!form.company || !form.position_title) return toast('公司和岗位名必填', 'error');
+    setSubmitting(true);
+    try {
+      await apiCall('/api/positions', { method: 'POST', body: JSON.stringify(form) });
+      toast('已添加', 'success'); onDone();
+    } catch (e) { toast(e.message, 'error'); }
+    setSubmitting(false);
+  };
+
+  return (
+    <Modal open onClose={onClose} title="手动添加岗位">
+      <div className="space-y-3">
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">公司</label>
+          <input className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
+            value={form.company} onChange={e => setForm({...form, company: e.target.value})} />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">岗位名</label>
+          <input className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
+            value={form.position_title} onChange={e => setForm({...form, position_title: e.target.value})} />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">初始状态</label>
+          <select className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white"
+            value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
+            {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+        </div>
+        <div className="flex gap-2 justify-end">
+          <Button variant="secondary" onClick={onClose}>取消</Button>
+          <Button variant="primary" onClick={submit} disabled={submitting}>添加</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ==================== 岗位详情 ====================
+function PositionDetailPage() {
+  const { route, navigate, toast } = useApp();
+  const id = route.split('/')[1];
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [statusModal, setStatusModal] = useState(false);
+  const [roundModal, setRoundModal] = useState(null);
+  const [reviewModal, setReviewModal] = useState(null);
+  const [reviewViewing, setReviewViewing] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await apiCall('/api/positions/' + id);
+      setData(r);
+    } catch (e) { toast(e.message, 'error'); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [id]);
+
+  const del = async () => {
+    if (!confirm('删除这个岗位？所有关联的面试轮次和复盘也会一并删除')) return;
+    try {
+      await apiCall('/api/positions/' + id, { method: 'DELETE' });
+      toast('已删除', 'success'); navigate('positions');
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  const updateStatus = async (newStatus) => {
+    try {
+      await apiCall('/api/positions/' + id, { method: 'PUT', body: JSON.stringify({ status: newStatus }) });
+      toast('状态已更新', 'success'); setStatusModal(false); load();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  if (loading || !data) return <Card className="p-8 text-center text-gray-400 text-sm">加载中...</Card>;
+
+  const p = data.position;
+  return (
+    <div className="animate-slide-up space-y-5">
+      <button onClick={() => navigate('positions')} className="text-sm text-gray-500 hover:text-gray-900 transition">← 返回岗位看板</button>
+
+      <Card className="p-5">
+        <div className="flex items-start gap-3 flex-wrap">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl md:text-2xl font-semibold text-gray-900">{p.company}</h1>
+            <div className="text-sm text-gray-600 mt-0.5">{p.position_title}</div>
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
+              <StatusBadge status={p.status} />
+              {p.applied_at && <span className="text-xs text-gray-500">投递于 {new Date(p.applied_at).toLocaleDateString('zh-CN')}</span>}
+            </div>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <Button size="sm" variant="secondary" onClick={() => setStatusModal(true)}>更新状态</Button>
+            <Button size="sm" variant="ghost" onClick={del} className="text-rose-600 hover:bg-rose-50">删除</Button>
+          </div>
+        </div>
+        {p.notes && <div className="mt-4 pt-4 border-t border-gray-100 text-xs text-gray-600 italic">{p.notes}</div>}
+      </Card>
+
+      {data.jd && (
+        <Card clickable onClick={() => navigate('jds/' + data.jd.id)} className="p-4 flex items-center gap-3">
+          <MatchBand score={data.jd.match_score} band={scoreToBand(data.jd.match_score)} size="md" />
+          <div className="flex-1 text-sm">
+            <div className="text-gray-500 text-xs">关联 JD</div>
+            <div className="font-medium text-gray-900">{data.jd.company} · {data.jd.position_title}</div>
+          </div>
+          <span className="text-xs text-gray-400">查看 →</span>
+        </Card>
+      )}
+
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-gray-900">面试轮次</h3>
+          <Button size="sm" variant="secondary" onClick={() => setRoundModal({})}>
+            <Icon.Plus className="w-3.5 h-3.5 mr-1" /> 添加
+          </Button>
+        </div>
+        {data.rounds.length === 0 ? (
+          <div className="text-sm text-gray-400 py-3">还没有面试记录</div>
+        ) : (
+          <div className="space-y-2">
+            {data.rounds.map(r => (
+              <div key={r.id} className="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition">
+                <div className="w-9 h-9 rounded-full bg-purple-50 text-purple-700 font-bold text-sm flex items-center justify-center">{r.round_number}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-gray-900">
+                    第 {r.round_number} 轮{r.round_type && <span className="ml-2 text-xs text-gray-500">{r.round_type}</span>}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {r.scheduled_at ? new Date(r.scheduled_at).toLocaleString('zh-CN') : '未安排时间'}
+                    {r.result && r.result !== 'pending' && <span className="ml-2">· {r.result}</span>}
+                  </div>
+                </div>
+                <div className="flex gap-1 flex-wrap">
+                  <Button size="sm" variant="ghost" onClick={() => setReviewModal({ roundId: r.id })}>📝 复盘</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setRoundModal({ data: r })}>编辑</Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-gray-900">复盘记录</h3>
+          <Button size="sm" variant="secondary" onClick={() => setReviewModal({})}>
+            <Icon.Plus className="w-3.5 h-3.5 mr-1" /> 粘贴复盘
+          </Button>
+        </div>
+        {data.reviews.length === 0 ? (
+          <div className="text-sm text-gray-400 py-3">还没有复盘。面试结束后粘贴回忆文本，AI 帮你分析</div>
+        ) : (
+          <div className="space-y-2">
+            {data.reviews.map(r => (
+              <div key={r.id} onClick={() => setReviewViewing(r.id)}
+                className="card-apple clickable p-3 rounded-lg border border-gray-100 hover:bg-gray-50 cursor-pointer">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="text-xs font-medium text-gray-900">{relTime(r.created_at)}</span>
+                  {r.round_id && <span className="text-[10px] text-purple-600 bg-purple-50 px-1 rounded">关联轮次</span>}
+                  {r.parse_status === 'failed' && <span className="text-[10px] text-rose-500">解析失败</span>}
+                  {r.parse_status === 'processing' && <span className="text-[10px] text-gray-400">解析中</span>}
+                </div>
+                <div className="text-xs text-gray-600 line-clamp-2">{r.preview}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {statusModal && <StatusUpdateModal current={p.status} onClose={() => setStatusModal(false)} onUpdate={updateStatus} />}
+      {roundModal && <RoundEditorModal positionId={id} data={roundModal.data} onClose={() => setRoundModal(null)} onDone={() => { setRoundModal(null); load(); }} />}
+      {reviewModal && <ReviewEditorModal positionId={id} defaultRoundId={reviewModal.roundId} rounds={data.rounds} onClose={() => setReviewModal(null)} onDone={() => { setReviewModal(null); load(); }} />}
+      {reviewViewing && <ReviewViewer reviewId={reviewViewing} onClose={() => setReviewViewing(null)} />}
+    </div>
+  );
+}
+
+function StatusUpdateModal({ current, onClose, onUpdate }) {
+  const [status, setStatus] = useState(current);
+  return (
+    <Modal open onClose={onClose} title="更新岗位状态">
+      <div className="space-y-3">
+        <select className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white"
+          value={status} onChange={e => setStatus(e.target.value)}>
+          {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+        <div className="flex gap-2 justify-end">
+          <Button variant="secondary" onClick={onClose}>取消</Button>
+          <Button variant="primary" onClick={() => onUpdate(status)}>更新</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function RoundEditorModal({ positionId, data, onClose, onDone }) {
+  const { toast } = useApp();
+  const [form, setForm] = useState(data || { round_number: null, round_type: '', scheduled_at: '', result: 'pending', notes: '' });
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    setSubmitting(true);
+    try {
+      const payload = { ...form };
+      if (payload.scheduled_at && !payload.scheduled_at.endsWith(':00')) payload.scheduled_at += ':00';
+      if (data?.id) await apiCall('/api/rounds/' + data.id, { method: 'PUT', body: JSON.stringify(payload) });
+      else await apiCall('/api/positions/' + positionId + '/rounds', { method: 'POST', body: JSON.stringify(payload) });
+      toast(data?.id ? '已更新' : '已添加', 'success'); onDone();
+    } catch (e) { toast(e.message, 'error'); }
+    setSubmitting(false);
+  };
+
+  const del = async () => {
+    if (!confirm('删除这轮面试？')) return;
+    try {
+      await apiCall('/api/rounds/' + data.id, { method: 'DELETE' });
+      toast('已删除', 'success'); onDone();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  return (
+    <Modal open onClose={onClose} title={data?.id ? '编辑面试轮次' : '新增面试轮次'}>
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-medium text-gray-700 mb-1 block">第几轮</label>
+            <input type="number" min="1" className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
+              placeholder="不填自动递增"
+              value={form.round_number || ''} onChange={e => setForm({...form, round_number: e.target.value ? Number(e.target.value) : null})} />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-700 mb-1 block">形式</label>
+            <select className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white"
+              value={form.round_type || ''} onChange={e => setForm({...form, round_type: e.target.value})}>
+              <option value="">未指定</option>
+              <option value="phone">电话面</option>
+              <option value="video">视频面</option>
+              <option value="onsite">现场面</option>
+              <option value="group">群面</option>
+              <option value="hr">HR 面</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">时间</label>
+          <input type="datetime-local" className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
+            value={form.scheduled_at?.slice(0, 16) || ''}
+            onChange={e => setForm({...form, scheduled_at: e.target.value || null})} />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">结果</label>
+          <select className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white"
+            value={form.result || 'pending'} onChange={e => setForm({...form, result: e.target.value})}>
+            <option value="pending">待面试</option>
+            <option value="pending_feedback">已面试，等反馈</option>
+            <option value="passed">通过</option>
+            <option value="failed">未通过</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">备注</label>
+          <textarea rows={3} className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
+            value={form.notes || ''} onChange={e => setForm({...form, notes: e.target.value})} />
+        </div>
+        <div className="flex gap-2 justify-end pt-2">
+          {data?.id && <Button variant="ghost" onClick={del} className="text-rose-600 hover:bg-rose-50">删除</Button>}
+          <div className="flex-1" />
+          <Button variant="secondary" onClick={onClose}>取消</Button>
+          <Button variant="primary" onClick={submit} disabled={submitting}>{submitting ? '保存中...' : '保存'}</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ReviewEditorModal({ positionId, defaultRoundId, rounds, onClose, onDone }) {
+  const { toast } = useApp();
+  const [roundId, setRoundId] = useState(defaultRoundId || '');
+  const [rawText, setRawText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    if (rawText.trim().length < 30) return toast('复盘内容至少 30 字', 'error');
+    setSubmitting(true);
+    try {
+      const r = await apiCall('/api/reviews', {
+        method: 'POST',
+        body: JSON.stringify({ position_id: positionId, round_id: roundId || null, raw_text: rawText }),
+      });
+      if (r.ok) { toast('AI 复盘分析完成', 'success'); onDone(); }
+      else toast(r.error || '分析失败', 'error');
+    } catch (e) { handleApiError(e, toast); }
+    setSubmitting(false);
+  };
+
+  return (
+    <Modal open onClose={onClose} title="粘贴复盘文本" maxWidth="max-w-2xl">
+      <div className="space-y-3">
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">关联轮次（选填）</label>
+          <select className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white"
+            value={roundId} onChange={e => setRoundId(e.target.value)}>
+            <option value="">不关联特定轮次</option>
+            {rounds.map(r => (
+              <option key={r.id} value={r.id}>第 {r.round_number} 轮{r.round_type ? ' · ' + r.round_type : ''}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">复盘文本（问答、感觉、印象）</label>
+          <textarea rows={12} className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm leading-relaxed"
+            placeholder={"粘贴面试的完整回忆，越详细越好。示例：\n面试官问：你为什么选择产品方向？\n我答：因为我觉得..."}
+            value={rawText} onChange={e => setRawText(e.target.value)} />
+          <div className="text-xs text-gray-400 mt-1">{rawText.length} 字 · 建议 300 字以上</div>
+        </div>
+        <div className="flex gap-2 justify-end pt-2">
+          <Button variant="secondary" onClick={onClose}>取消</Button>
+          <Button variant="primary" onClick={submit} disabled={submitting}>
+            {submitting ? 'AI 分析中（约 30 秒）...' : '生成分析'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ReviewViewer({ reviewId, onClose }) {
+  const [review, setReview] = useState(null);
+  useEffect(() => { apiCall('/api/reviews/' + reviewId).then(r => setReview(r.review)); }, [reviewId]);
+
+  if (!review) {
+    return <Modal open onClose={onClose} title="复盘分析" maxWidth="max-w-2xl">
+      <div className="text-sm text-gray-400 py-4 text-center">加载中...</div>
+    </Modal>;
+  }
+
+  const parsed = review.parsed;
+  const insights = review.insights;
+
+  return (
+    <Modal open onClose={onClose} title="复盘分析" maxWidth="max-w-3xl">
+      <div className="space-y-5 text-sm">
+        {parsed?.overall_self_rating != null && (
+          <div className="p-3 rounded-lg bg-brand-50 flex items-center gap-3 flex-wrap">
+            <div className="text-2xl font-bold text-brand-700">{parsed.overall_self_rating}</div>
+            <div className="text-xs text-brand-700">/10 总体自评</div>
+            {parsed.interviewer_style && <div className="text-xs text-gray-600 ml-auto">面试官风格：{parsed.interviewer_style}</div>}
+          </div>
+        )}
+        {insights?.key_findings?.length > 0 && (
+          <Section title="🎯 关键观察">
+            <ul className="text-xs text-gray-700 ml-4 list-disc space-y-1">
+              {insights.key_findings.map((f, i) => <li key={i}>{f}</li>)}
+            </ul>
+          </Section>
+        )}
+        {insights?.patterns_vs_history && (
+          <Section title="🔁 跨次模式">
+            <div className="text-xs text-gray-700 bg-amber-50 rounded p-3 border border-amber-100">
+              {insights.patterns_vs_history}
+            </div>
+          </Section>
+        )}
+        {insights?.strengths?.length > 0 && (
+          <Section title="✓ 做得好的地方">
+            <ul className="text-xs text-gray-700 ml-4 list-disc space-y-1">
+              {insights.strengths.map((s, i) => <li key={i}>{s}</li>)}
+            </ul>
+          </Section>
+        )}
+        {insights?.weaknesses?.length > 0 && (
+          <Section title="✗ 暴露的短板">
+            <ul className="text-xs text-gray-700 ml-4 list-disc space-y-1">
+              {insights.weaknesses.map((s, i) => <li key={i}>{s}</li>)}
+            </ul>
+          </Section>
+        )}
+        {insights?.next_actions?.length > 0 && (
+          <Section title="💡 下一步改进">
+            <ul className="text-xs text-gray-700 ml-4 list-disc space-y-1">
+              {insights.next_actions.map((s, i) => <li key={i}>{s}</li>)}
+            </ul>
+          </Section>
+        )}
+        {parsed?.qa_pairs?.length > 0 && (
+          <Section title={"📋 问答回顾（" + parsed.qa_pairs.length + " 题）"}>
+            <div className="space-y-3">
+              {parsed.qa_pairs.map((qa, i) => (
+                <div key={i} className="border-l-2 border-brand-300 pl-3">
+                  <div className="text-xs font-medium text-gray-900">Q{i+1}: {qa.question}</div>
+                  {qa.category && <div className="text-[10px] text-gray-400 mt-0.5">分类：{qa.category}</div>}
+                  <div className="text-xs text-gray-600 mt-1">A: {qa.user_answer}</div>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 // ==================== 占位页面（后续轮次填充）====================
 function PlaceholderPage({ title, desc }) {
   return (
@@ -864,13 +2172,15 @@ function PlaceholderPage({ title, desc }) {
 // ==================== 路由分发 ====================
 function Router() {
   const { route } = useApp();
-  const root = route.split('/')[0] || 'home';
+  const parts = route.split('/');
+  const root = parts[0] || 'home';
+  const hasId = parts.length > 1 && parts[1];
 
   switch (root) {
     case 'home': return <HomePage />;
-    case 'resumes': return <PlaceholderPage title="简历管理" desc="粘贴简历文本，AI 自动结构化解析" />;
-    case 'jds': return <PlaceholderPage title="JD 库" desc="粘贴 JD，自动色块评估 + 深度匹配分析" />;
-    case 'positions': return <PlaceholderPage title="岗位看板" desc="状态机全生命周期管理" />;
+    case 'resumes': return <ResumesPage />;
+    case 'jds': return hasId ? <JDDetailPage /> : <JDsPage />;
+    case 'positions': return hasId ? <PositionDetailPage /> : <PositionsPage />;
     case 'profile': return <PlaceholderPage title="我的画像" desc="4 层画像 + 证据锚点" />;
     case 'practice': return <PlaceholderPage title="陪练题" desc="LLM 深挖 + Tavily 搜索真实面经 + 你自己粘贴" />;
     case 'suggestions': return <PlaceholderPage title="AI 建议" desc="基于画像的个性化行动建议" />;
