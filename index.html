@@ -1372,9 +1372,15 @@ function JDsPage() {
                 {/* 快捷按钮行（非 processing 状态）*/}
                 {!processing && (
                   <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-1 flex-wrap">
-                    <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setBindingJd(j); }}>
-                      📌 加入看板
-                    </Button>
+                    {j.position_id ? (
+                      <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate('positions/' + j.position_id); }} className="text-emerald-600 hover:bg-emerald-50">
+                        ✅ 已在看板 · 查看
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setBindingJd(j); }}>
+                        📌 加入看板
+                      </Button>
+                    )}
                     {j.has_deep_match !== 1 && (
                       <Button size="sm" variant="ghost" onClick={(e) => runDeepMatch(j.id, e)}>
                         🔍 深度分析
@@ -1789,7 +1795,15 @@ function BindToPositionModal({ jd, onClose, onDone }) {
       toast('已加入岗位看板', 'success');
       navigate('positions/' + r.id);
       onDone();
-    } catch (e) { handleApiError(e, toast); }
+    } catch (e) {
+      if (e.status === 409 && e.data?.position_id) {
+        toast('这个岗位已经在看板里啦', 'info');
+        navigate('positions/' + e.data.position_id);
+        onDone();
+      } else {
+        handleApiError(e, toast);
+      }
+    }
     setSubmitting(false);
   };
 
@@ -2480,6 +2494,1053 @@ function ProfileTagCard({ tag, onReject }) {
   );
 }
 
+// ==================== 陪练题 ====================
+function PracticePage() {
+  const { toast } = useApp();
+  const [list, setList] = useState([]);
+  const [positions, setPositions] = useState([]);
+  const [filterPos, setFilterPos] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [genModal, setGenModal] = useState(false);
+  const [pasteModal, setPasteModal] = useState(false);
+
+  const load = async () => {
+    try {
+      const url = '/api/practice' + (filterPos ? '?position_id=' + filterPos : '');
+      const r = await apiCall(url);
+      setList(r.questions || []);
+    } catch (e) { toast(e.message, 'error'); }
+    setLoading(false);
+  };
+  const loadPositions = async () => {
+    try {
+      const r = await apiCall('/api/positions');
+      setPositions(r.positions || []);
+    } catch {}
+  };
+  useEffect(() => { load(); loadPositions(); }, []);
+  useEffect(() => { load(); }, [filterPos]);
+
+  const del = async (id) => {
+    if (!confirm('删除这道题？')) return;
+    try {
+      await apiCall('/api/practice/' + id, { method: 'DELETE' });
+      toast('已删除', 'success');
+      load();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  const sourceLabel = (s) => ({
+    llm_resume_dig: '🎯 简历深挖',
+    tavily_search: '🔎 真实面经',
+    user_pasted: '✏️ 粘贴',
+  }[s] || s);
+
+  return (
+    <div className="animate-slide-up">
+      <PageHeader
+        title="陪练题"
+        desc="AI 深挖简历 + Tavily 真实面经 + 你粘贴的题"
+        action={
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setPasteModal(true)}>粘贴题目</Button>
+            <Button variant="primary" onClick={() => setGenModal(true)}>
+              <Icon.Plus className="w-4 h-4 mr-1" /> AI 生成
+            </Button>
+          </div>
+        }
+      />
+
+      {positions.length > 0 && (
+        <div className="mb-4">
+          <select className="max-w-xs px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white"
+            value={filterPos} onChange={e => setFilterPos(e.target.value)}>
+            <option value="">全部岗位</option>
+            {positions.map(p => <option key={p.id} value={p.id}>{p.company} · {p.position_title}</option>)}
+          </select>
+        </div>
+      )}
+
+      {loading ? (
+        <Card className="p-8 text-center text-gray-400 text-sm">加载中...</Card>
+      ) : list.length === 0 ? (
+        <Card className="p-0">
+          <EmptyState
+            icon="🎓"
+            title="还没有陪练题"
+            desc="AI 可以基于你的简历和目标岗位生成深挖题 + 从网上搜真实面经"
+            action={<Button variant="primary" onClick={() => setGenModal(true)}>生成第一批</Button>}
+          />
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {list.map(q => {
+            const detail = q.source_detail ? (typeof q.source_detail === 'string' ? JSON.parse(q.source_detail) : q.source_detail) : null;
+            return <PracticeCard key={q.id} q={q} detail={detail} sourceLabel={sourceLabel} onDel={() => del(q.id)} />;
+          })}
+        </div>
+      )}
+
+      {genModal && <GeneratePracticeModal positions={positions} onClose={() => setGenModal(false)} onDone={() => { setGenModal(false); load(); }} />}
+      {pasteModal && <PastePracticeModal positions={positions} onClose={() => setPasteModal(false)} onDone={() => { setPasteModal(false); load(); }} />}
+    </div>
+  );
+}
+
+function PracticeCard({ q, detail, sourceLabel, onDel }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <Card className="p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{sourceLabel(q.source)}</span>
+            {detail?.category && <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-50 text-brand-700">{detail.category}</span>}
+            {detail?.difficulty && <span className="text-[10px] text-gray-400">难度 {detail.difficulty}/5</span>}
+          </div>
+          <div className="text-sm font-medium text-gray-900">{q.question}</div>
+          {expanded && (
+            <div className="mt-2 pt-2 border-t border-gray-100 space-y-2">
+              {q.reference_answer && (
+                <div>
+                  <div className="text-[10px] text-gray-400 mb-0.5">参考答题要点</div>
+                  <div className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">{q.reference_answer}</div>
+                </div>
+              )}
+              {q.user_note && (
+                <div>
+                  <div className="text-[10px] text-gray-400 mb-0.5">我的笔记</div>
+                  <div className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">{q.user_note}</div>
+                </div>
+              )}
+              {detail?.source_url && (
+                <a href={detail.source_url} target="_blank" rel="noopener noreferrer" className="text-xs text-brand-600 hover:underline">
+                  🔗 来源链接
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="flex gap-1">
+          <Button size="sm" variant="ghost" onClick={() => setExpanded(!expanded)}>
+            {expanded ? '收起' : '展开'}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onDel} className="text-rose-600 hover:bg-rose-50">
+            <Icon.X className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function GeneratePracticeModal({ positions, onClose, onDone }) {
+  const { toast } = useApp();
+  const [positionId, setPositionId] = useState(positions[0]?.id || '');
+  const [count, setCount] = useState(8);
+  const [sources, setSources] = useState({ resume_dig: true, tavily: true });
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    if (!positionId) return toast('选择一个岗位', 'error');
+    const srcArr = [];
+    if (sources.resume_dig) srcArr.push('resume_dig');
+    if (sources.tavily) srcArr.push('tavily');
+    if (srcArr.length === 0) return toast('至少选一个来源', 'error');
+    setSubmitting(true);
+    try {
+      const r = await apiCall('/api/practice/generate', {
+        method: 'POST',
+        body: JSON.stringify({ position_id: positionId, count, sources: srcArr }),
+      });
+      toast(`已生成 ${r.count} 道题`, 'success');
+      onDone();
+    } catch (e) { handleApiError(e, toast); }
+    setSubmitting(false);
+  };
+
+  return (
+    <Modal open onClose={onClose} title="AI 生成陪练题">
+      <div className="space-y-3">
+        {positions.length === 0 ? (
+          <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
+            需要先在岗位看板添加一个岗位才能生成陪练题
+          </div>
+        ) : (
+          <>
+            <div>
+              <label className="text-xs font-medium text-gray-700 mb-1 block">目标岗位</label>
+              <select className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white"
+                value={positionId} onChange={e => setPositionId(e.target.value)}>
+                {positions.map(p => <option key={p.id} value={p.id}>{p.company} · {p.position_title}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-700 mb-1 block">题目数量（{count}）</label>
+              <input type="range" min="3" max="15" value={count} onChange={e => setCount(Number(e.target.value))}
+                className="w-full accent-brand-600" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-700 mb-2 block">题目来源</label>
+              <label className="flex items-center gap-2 text-sm text-gray-700 mb-1 cursor-pointer">
+                <input type="checkbox" checked={sources.resume_dig} onChange={e => setSources({...sources, resume_dig: e.target.checked})} className="w-4 h-4 rounded accent-brand-600" />
+                🎯 AI 简历深挖（Flash 配额，深挖简历细节）
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                <input type="checkbox" checked={sources.tavily} onChange={e => setSources({...sources, tavily: e.target.checked})} className="w-4 h-4 rounded accent-brand-600" />
+                🔎 Tavily 真实面经搜索（不占 LLM 配额）
+              </label>
+            </div>
+          </>
+        )}
+        <div className="flex gap-2 justify-end">
+          <Button variant="secondary" onClick={onClose}>取消</Button>
+          <Button variant="primary" onClick={submit} disabled={submitting || positions.length === 0}>
+            {submitting ? 'AI 生成中（约 20 秒）...' : '开始生成'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function PastePracticeModal({ positions, onClose, onDone }) {
+  const { toast } = useApp();
+  const [positionId, setPositionId] = useState('');
+  const [question, setQuestion] = useState('');
+  const [referenceAnswer, setReferenceAnswer] = useState('');
+  const [userNote, setUserNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    if (question.trim().length < 5) return toast('题目太短', 'error');
+    setSubmitting(true);
+    try {
+      await apiCall('/api/practice/user-paste', {
+        method: 'POST',
+        body: JSON.stringify({
+          position_id: positionId || null,
+          question, reference_answer: referenceAnswer || null,
+          user_note: userNote || null,
+        }),
+      });
+      toast('已保存', 'success');
+      onDone();
+    } catch (e) { toast(e.message, 'error'); }
+    setSubmitting(false);
+  };
+
+  return (
+    <Modal open onClose={onClose} title="粘贴面试题（个人面经库）" maxWidth="max-w-2xl">
+      <div className="space-y-3">
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">关联岗位（选填）</label>
+          <select className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white"
+            value={positionId} onChange={e => setPositionId(e.target.value)}>
+            <option value="">不关联特定岗位</option>
+            {positions.map(p => <option key={p.id} value={p.id}>{p.company} · {p.position_title}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">题目</label>
+          <textarea rows={2} className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
+            placeholder="如：请讲一个你做过的最有挑战的项目..."
+            value={question} onChange={e => setQuestion(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">参考答案/要点（选填）</label>
+          <textarea rows={4} className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
+            value={referenceAnswer} onChange={e => setReferenceAnswer(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">我的笔记（选填）</label>
+          <textarea rows={3} className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
+            placeholder="面试官追问了什么、自己回答的思路、哪里答错了..."
+            value={userNote} onChange={e => setUserNote(e.target.value)} />
+        </div>
+        <div className="flex gap-2 justify-end">
+          <Button variant="secondary" onClick={onClose}>取消</Button>
+          <Button variant="primary" onClick={submit} disabled={submitting}>保存</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ==================== AI 建议 ====================
+function SuggestionsPage() {
+  const { toast } = useApp();
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+
+  const load = async () => {
+    try {
+      const r = await apiCall('/api/suggestions');
+      setList(r.suggestions || []);
+    } catch (e) { toast(e.message, 'error'); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const generate = async () => {
+    if (!confirm('基于你的画像生成新的 AI 建议（消耗 1 次深度配额）？')) return;
+    setGenerating(true);
+    try {
+      const r = await apiCall('/api/suggestions/generate', { method: 'POST' });
+      toast(`已生成 ${r.count} 条建议`, 'success');
+      load();
+    } catch (e) { handleApiError(e, toast); }
+    setGenerating(false);
+  };
+
+  const updateStatus = async (id, status) => {
+    try {
+      await apiCall('/api/suggestions/' + id, { method: 'PUT', body: JSON.stringify({ status }) });
+      load();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  const typeLabel = (t) => ({ direction: '🧭 方向', skill_gap: '🛠️ 能力补齐', next_action: '👉 下一步' }[t] || t);
+  const statusBadge = (s) => ({
+    new: 'bg-brand-50 text-brand-700 border-brand-200',
+    viewed: 'bg-gray-50 text-gray-600 border-gray-200',
+    adopted: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    dismissed: 'bg-rose-50 text-rose-500 border-rose-200',
+  }[s] || 'bg-gray-50 text-gray-600 border-gray-200');
+
+  return (
+    <div className="animate-slide-up">
+      <PageHeader
+        title="AI 建议"
+        desc="基于画像池 + 近期岗位动态生成的个性化行动建议"
+        action={
+          <Button variant="primary" onClick={generate} disabled={generating}>
+            {generating ? '生成中...' : '🔮 生成新建议'}
+          </Button>
+        }
+      />
+
+      {loading ? (
+        <Card className="p-8 text-center text-gray-400 text-sm">加载中...</Card>
+      ) : list.length === 0 ? (
+        <Card className="p-0">
+          <EmptyState
+            icon="💡"
+            title="还没有建议"
+            desc="AI 需要你的画像有一定积累（至少 3 条标签）才能给出有价值的建议。先粘贴简历和几份 JD 吧。"
+            action={<Button variant="primary" onClick={generate}>生成试试</Button>}
+          />
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {list.map(s => {
+            const basedOn = s.based_on ? (typeof s.based_on === 'string' ? JSON.parse(s.based_on) : s.based_on) : [];
+            return (
+              <Card key={s.id} className="p-5">
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className="text-xs font-semibold text-gray-700">{typeLabel(s.suggestion_type)}</span>
+                      <span className={'text-[10px] px-1.5 py-0.5 rounded border ' + statusBadge(s.status)}>
+                        {s.status === 'new' ? '未查看' : s.status === 'viewed' ? '已查看' : s.status === 'adopted' ? '已采纳' : '已忽略'}
+                      </span>
+                      <span className="text-[10px] text-gray-400">{relTime(s.created_at)}</span>
+                    </div>
+                    <h3 className="font-semibold text-gray-900 mb-1">{s.title}</h3>
+                    <p className="text-sm text-gray-700 leading-relaxed">{s.content}</p>
+                    {basedOn.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        <span className="text-[10px] text-gray-400">依据：</span>
+                        {basedOn.map((b, i) => (
+                          <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-50 text-gray-600 border border-gray-200">{b}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {s.status !== 'adopted' && s.status !== 'dismissed' && (
+                  <div className="mt-3 pt-3 border-t border-gray-100 flex gap-1 justify-end">
+                    <Button size="sm" variant="ghost" onClick={() => updateStatus(s.id, 'dismissed')} className="text-gray-500">忽略</Button>
+                    <Button size="sm" variant="accent" onClick={() => updateStatus(s.id, 'adopted')}>✓ 采纳</Button>
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==================== 通知中心 ====================
+function NotificationsPage() {
+  const { toast } = useApp();
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showPref, setShowPref] = useState(false);
+
+  const load = async () => {
+    try {
+      const r = await apiCall('/api/notifications');
+      setList(r.notifications || []);
+    } catch (e) { toast(e.message, 'error'); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const markRead = async (id) => {
+    try {
+      await apiCall('/api/notifications/' + id + '/read', { method: 'POST' });
+      load();
+    } catch {}
+  };
+  const markAllRead = async () => {
+    try {
+      await apiCall('/api/notifications/read-all', { method: 'POST' });
+      toast('已全部标记已读', 'success');
+      load();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  const del = async (id) => {
+    try {
+      await apiCall('/api/notifications/' + id, { method: 'DELETE' });
+      load();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  const typeLabel = (t) => ({
+    status_change: '📊 状态变更',
+    review_missing: '📝 待复盘',
+    profile_insight: '🧠 画像洞察',
+    suggestion: '💡 AI 建议',
+    resume_stale: '📄 简历提醒',
+  }[t] || t);
+
+  const unread = list.filter(n => n.read === 0);
+
+  return (
+    <div className="animate-slide-up">
+      <PageHeader
+        title="通知中心"
+        desc={unread.length + ' 条未读 · 共 ' + list.length + ' 条'}
+        action={
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setShowPref(true)}>偏好设置</Button>
+            {unread.length > 0 && <Button variant="primary" onClick={markAllRead}>全部已读</Button>}
+          </div>
+        }
+      />
+
+      {loading ? (
+        <Card className="p-8 text-center text-gray-400 text-sm">加载中...</Card>
+      ) : list.length === 0 ? (
+        <Card className="p-0">
+          <EmptyState icon="🔔" title="暂无通知" desc="当有岗位状态变更、AI 洞察、或待复盘提醒时会出现在这里" />
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {list.map(n => (
+            <Card key={n.id} className={'p-4 ' + (n.read === 0 ? 'border-brand-200 bg-brand-50/30' : '')}>
+              <div className="flex items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <span className="text-xs font-medium text-gray-600">{typeLabel(n.type)}</span>
+                    {n.read === 0 && <span className="w-1.5 h-1.5 rounded-full bg-brand-500" />}
+                    <span className="text-[10px] text-gray-400">{relTime(n.created_at)}</span>
+                  </div>
+                  <div className="text-sm font-semibold text-gray-900">{n.title}</div>
+                  {n.content && <div className="text-xs text-gray-600 mt-1 whitespace-pre-wrap">{n.content}</div>}
+                </div>
+                <div className="flex gap-1">
+                  {n.read === 0 && <Button size="sm" variant="ghost" onClick={() => markRead(n.id)}>已读</Button>}
+                  <button onClick={() => del(n.id)} className="text-gray-400 hover:text-rose-600 p-1 transition">
+                    <Icon.X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {showPref && <NotifPrefModal onClose={() => setShowPref(false)} />}
+    </div>
+  );
+}
+
+function NotifPrefModal({ onClose }) {
+  const { toast } = useApp();
+  const [pref, setPref] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiCall('/api/notifications/preferences').then(r => { setPref(r.preferences); setLoading(false); });
+  }, []);
+
+  const toggle = async (key) => {
+    const newPref = { ...pref, [key]: pref[key] ? 0 : 1 };
+    setPref(newPref);
+    try {
+      await apiCall('/api/notifications/preferences', { method: 'POST', body: JSON.stringify(newPref) });
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  if (loading || !pref) return <Modal open onClose={onClose} title="通知偏好"><div className="text-sm text-gray-400 py-4 text-center">加载中...</div></Modal>;
+
+  const items = [
+    { key: 'status_change', label: '岗位状态变更' },
+    { key: 'review_missing', label: '面试后未复盘提醒' },
+    { key: 'profile_insight', label: '画像自审洞察' },
+    { key: 'suggestion', label: 'AI 建议生成通知' },
+    { key: 'resume_stale', label: '简历长期未更新（暂未启用）' },
+  ];
+
+  return (
+    <Modal open onClose={onClose} title="通知偏好">
+      <div className="space-y-2">
+        {items.map(it => (
+          <label key={it.key} className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition cursor-pointer">
+            <span className="text-sm text-gray-800">{it.label}</span>
+            <input type="checkbox" checked={pref[it.key] === 1} onChange={() => toggle(it.key)} className="w-4 h-4 rounded accent-brand-600" />
+          </label>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+// ==================== 设置页 ====================
+function SettingsPage() {
+  const { user, toast, refreshUser } = useApp();
+  const [quota, setQuota] = useState(null);
+  const [byok, setByok] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [emailModal, setEmailModal] = useState(false);
+
+  useEffect(() => {
+    apiCall('/api/me/quota').then(r => setQuota(r));
+  }, []);
+
+  const saveByok = async () => {
+    setSaving(true);
+    try {
+      const r = await apiCall('/api/me/byok', {
+        method: 'POST',
+        body: JSON.stringify({ api_key: byok.trim() }),
+      });
+      toast(r.has_key ? '已保存你的 API Key，今后调用不占免费配额' : '已清除', 'success');
+      setByok('');
+      refreshUser();
+      apiCall('/api/me/quota').then(r => setQuota(r));
+    } catch (e) { toast(e.message, 'error'); }
+    setSaving(false);
+  };
+
+  return (
+    <div className="animate-slide-up space-y-5">
+      <PageHeader title="设置" desc="个人信息 · 配额 · 通知偏好 · 账号恢复" />
+
+      {/* 账号基础 */}
+      <Card className="p-5">
+        <h3 className="font-semibold text-gray-900 mb-3">账号</h3>
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-gray-500">用户 ID</span>
+            <span className="text-gray-900 font-mono text-xs">{user?.id}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">姓名</span>
+            <span className="text-gray-900">{user?.name || '未设置'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">求职方向</span>
+            <span className="text-gray-900">{user?.target_track || '未设置'}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-gray-500">绑定邮箱（跨设备恢复）</span>
+            <Button size="sm" variant="secondary" onClick={() => setEmailModal(true)}>绑定邮箱</Button>
+          </div>
+        </div>
+      </Card>
+
+      {/* 配额 */}
+      {quota && (
+        <Card className="p-5">
+          <h3 className="font-semibold text-gray-900 mb-3">今日 AI 配额</h3>
+          <div className="space-y-3">
+            <div>
+              <div className="flex justify-between text-sm mb-1">
+                <span className="text-gray-700">快速 AI（Flash）</span>
+                <span className="text-gray-900 font-semibold">{quota.flash.used} / {quota.flash.limit}</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                <div className="h-full bg-brand-500 transition-all" style={{ width: Math.min(100, quota.flash.used / quota.flash.limit * 100) + '%' }} />
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between text-sm mb-1">
+                <span className="text-gray-700">深度 AI（Pro）</span>
+                <span className="text-gray-900 font-semibold">{quota.pro.used} / {quota.pro.limit}</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                <div className="h-full bg-accent-500 transition-all" style={{ width: Math.min(100, quota.pro.used / quota.pro.limit * 100) + '%' }} />
+              </div>
+            </div>
+            {quota.using_own_key && (
+              <div className="text-xs text-emerald-700 bg-emerald-50 rounded p-2 border border-emerald-200">
+                ✓ 你正在使用自己的 DeepSeek API Key，今日调用不占免费配额
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* BYOK */}
+      <Card className="p-5">
+        <h3 className="font-semibold text-gray-900 mb-2">使用自己的 DeepSeek API Key（BYOK）</h3>
+        <p className="text-xs text-gray-600 mb-3 leading-relaxed">
+          配额用完还想继续用？填入你自己的 DeepSeek API Key，今后所有 AI 调用都走你的 Key（数据更私密 · 无配额限制）。
+          <br />
+          <a href="https://platform.deepseek.com" target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline">👉 去 DeepSeek 获取 API Key</a>
+        </p>
+        <div className="flex gap-2">
+          <input type="password" className="flex-1 px-3 py-2 rounded-lg border border-gray-300 text-sm font-mono"
+            placeholder={user?.email ? 'sk-...（留空清除）' : 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'}
+            value={byok} onChange={e => setByok(e.target.value)} />
+          <Button variant="primary" onClick={saveByok} disabled={saving}>
+            {saving ? '保存中...' : '保存'}
+          </Button>
+        </div>
+      </Card>
+
+      {/* 换设备 */}
+      <Card className="p-5 bg-amber-50/50 border-amber-100">
+        <h3 className="font-semibold text-gray-900 mb-2">关于换设备</h3>
+        <p className="text-xs text-gray-700 leading-relaxed">
+          目前换设备登录会创建新账号，数据不互通。<br />
+          <strong>邮箱绑定 + 恢复</strong>功能还没实装，未来版本中将会更新。
+          在那之前，建议使用同一设备 + 浏览器。
+        </p>
+      </Card>
+
+      {emailModal && <EmailBindPlaceholderModal onClose={() => setEmailModal(false)} />}
+    </div>
+  );
+}
+
+function EmailBindPlaceholderModal({ onClose }) {
+  return (
+    <Modal open onClose={onClose} title="邮箱绑定">
+      <div className="space-y-3">
+        <div className="p-4 rounded-lg bg-amber-50 border border-amber-200">
+          <div className="text-sm font-medium text-amber-900 mb-1">该功能还没实装</div>
+          <div className="text-xs text-amber-700 leading-relaxed">
+            邮箱绑定和跨设备恢复功能，未来版本中将会更新。<br />
+            在那之前，数据会绑定到当前浏览器/设备。
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <Button variant="secondary" onClick={onClose}>我知道了</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ==================== 管理员面板 ====================
+function AdminPage() {
+  const { toast } = useApp();
+  const [stats, setStats] = useState(null);
+  const [tab, setTab] = useState('stats');
+
+  useEffect(() => {
+    apiCall('/api/admin/stats').then(setStats).catch(e => toast(e.message, 'error'));
+  }, []);
+
+  return (
+    <div className="animate-slide-up space-y-5">
+      <PageHeader title="管理面板" desc="仅管理员可见 · 全局数据 / 用户 / LLM 日志" />
+
+      <div className="flex gap-2 border-b border-gray-200 overflow-x-auto">
+        {[
+          { key: 'stats', label: '📊 数据看板' },
+          { key: 'users', label: '👥 用户' },
+          { key: 'logs', label: '📝 LLM 日志' },
+          { key: 'cron', label: '⏰ 定时任务' },
+          { key: 'config', label: '⚙️ 配置' },
+        ].map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={'px-3 py-2 text-sm font-medium transition border-b-2 -mb-px whitespace-nowrap ' +
+              (tab === t.key ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-600 hover:text-gray-900')}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'stats' && <AdminStats stats={stats} />}
+      {tab === 'users' && <AdminUsers />}
+      {tab === 'logs' && <AdminLogs />}
+      {tab === 'cron' && <AdminCron />}
+      {tab === 'config' && <AdminConfig />}
+    </div>
+  );
+}
+
+function AdminStats({ stats }) {
+  if (!stats) return <Card className="p-8 text-center text-gray-400 text-sm">加载中...</Card>;
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label="用户总数" value={stats.users.total} />
+        <StatCard label="今日活跃" value={stats.users.active_today} />
+        <StatCard label="已完成引导" value={stats.users.onboarded} />
+        <StatCard label="今日用过配额的人" value={stats.quota_today.users_with_usage} />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label="简历总数" value={stats.content.resumes} />
+        <StatCard label="JD 总数" value={stats.content.jds} />
+        <StatCard label="岗位总数" value={stats.content.positions} />
+        <StatCard label="复盘总数" value={stats.content.reviews} />
+      </div>
+      <Card className="p-5">
+        <h3 className="font-semibold text-gray-900 mb-3">LLM 调用（今日 / 本周 / 本月）</h3>
+        <LLMUsageTable title="今日" rows={stats.llm.today} />
+        <LLMUsageTable title="本周" rows={stats.llm.week} />
+        <LLMUsageTable title="本月" rows={stats.llm.month} />
+      </Card>
+      <Card className="p-5">
+        <h3 className="font-semibold text-gray-900 mb-3">今日配额消耗</h3>
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="flex justify-between p-3 rounded bg-brand-50">
+            <span>Flash（全局）</span>
+            <span className="font-semibold text-brand-700">{stats.quota_today.flash_used_total}</span>
+          </div>
+          <div className="flex justify-between p-3 rounded bg-accent-500/10">
+            <span>Pro（全局）</span>
+            <span className="font-semibold text-accent-600">{stats.quota_today.pro_used_total}</span>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function StatCard({ label, value }) {
+  return (
+    <Card className="p-4">
+      <div className="text-xs text-gray-500">{label}</div>
+      <div className="text-2xl font-bold text-gray-900 mt-1">{value}</div>
+    </Card>
+  );
+}
+
+function LLMUsageTable({ title, rows }) {
+  if (!rows || rows.length === 0) return <div className="text-xs text-gray-400 py-2">{title}：无调用</div>;
+  return (
+    <div className="mb-3">
+      <div className="text-xs font-semibold text-gray-700 mb-1">{title}</div>
+      <div className="space-y-1">
+        {rows.map((r, i) => (
+          <div key={i} className="flex justify-between text-xs p-2 rounded bg-gray-50">
+            <span className="text-gray-700 font-mono">{r.model}</span>
+            <span className="text-gray-600">{r.calls} 次 · {r.tokens || 0} tokens</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AdminUsers() {
+  const { toast } = useApp();
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [detail, setDetail] = useState(null);
+
+  useEffect(() => {
+    apiCall('/api/admin/users').then(r => { setList(r.users || []); setLoading(false); }).catch(e => toast(e.message, 'error'));
+  }, []);
+
+  if (loading) return <Card className="p-8 text-center text-gray-400 text-sm">加载中...</Card>;
+  return (
+    <Card className="p-0 overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
+          <tr>
+            <th className="px-4 py-3 text-left">用户</th>
+            <th className="px-4 py-3 text-left">方向</th>
+            <th className="px-4 py-3 text-right">简历</th>
+            <th className="px-4 py-3 text-right">JD</th>
+            <th className="px-4 py-3 text-right">岗位</th>
+            <th className="px-4 py-3 text-right">复盘</th>
+            <th className="px-4 py-3 text-right">今日配额</th>
+            <th className="px-4 py-3 text-right">操作</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {list.map(u => (
+            <tr key={u.id} className="hover:bg-gray-50">
+              <td className="px-4 py-3">
+                <div className="font-medium text-gray-900">
+                  {u.name || '未命名'}
+                  {u.is_admin === 1 && <span className="ml-1 text-[10px] text-brand-700">[管理员]</span>}
+                </div>
+                <div className="text-xs text-gray-500">{u.email || '匿名'}</div>
+              </td>
+              <td className="px-4 py-3 text-gray-600 text-xs">{u.target_track || '—'}</td>
+              <td className="px-4 py-3 text-right text-gray-700">{u.resumes_count}</td>
+              <td className="px-4 py-3 text-right text-gray-700">{u.jds_count}</td>
+              <td className="px-4 py-3 text-right text-gray-700">{u.positions_count}</td>
+              <td className="px-4 py-3 text-right text-gray-700">{u.reviews_count}</td>
+              <td className="px-4 py-3 text-right text-xs">
+                <span className="text-brand-700">{u.flash_today}F</span> / <span className="text-accent-600">{u.pro_today}P</span>
+                {u.has_own_key === 1 && <span className="ml-1 text-[10px] text-emerald-600">🔑</span>}
+              </td>
+              <td className="px-4 py-3 text-right">
+                <Button size="sm" variant="ghost" onClick={() => setDetail(u.id)}>详情</Button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {detail && <AdminUserDetailModal uid={detail} onClose={() => setDetail(null)} />}
+    </Card>
+  );
+}
+
+function AdminUserDetailModal({ uid, onClose }) {
+  const [data, setData] = useState(null);
+  useEffect(() => { apiCall('/api/admin/users/' + uid).then(setData); }, [uid]);
+
+  return (
+    <Modal open onClose={onClose} title="用户详情" maxWidth="max-w-3xl">
+      {!data ? (
+        <div className="text-sm text-gray-400 py-4 text-center">加载中...</div>
+      ) : (
+        <div className="space-y-4 text-sm">
+          <div className="p-3 rounded bg-gray-50 text-xs">
+            <div>ID: <span className="font-mono">{data.user.id}</span></div>
+            <div>指纹: <span className="font-mono text-gray-600">{data.user.fingerprint?.slice(0, 20)}...</span></div>
+            <div>邮箱: {data.user.email || '—'}</div>
+            <div>最后活跃: {data.user.last_active_at ? new Date(data.user.last_active_at).toLocaleString('zh-CN') : '—'}</div>
+            {data.user.own_api_key_masked && <div>BYOK Key: <span className="font-mono">{data.user.own_api_key_masked}</span></div>}
+          </div>
+          <div className="grid grid-cols-4 gap-2 text-xs">
+            <div className="p-2 rounded bg-brand-50 text-center"><div className="font-semibold">{data.resumes?.length || 0}</div><div className="text-gray-500">简历</div></div>
+            <div className="p-2 rounded bg-brand-50 text-center"><div className="font-semibold">{data.jds?.length || 0}</div><div className="text-gray-500">JD</div></div>
+            <div className="p-2 rounded bg-brand-50 text-center"><div className="font-semibold">{data.positions?.length || 0}</div><div className="text-gray-500">岗位</div></div>
+            <div className="p-2 rounded bg-brand-50 text-center"><div className="font-semibold">{data.reviews?.length || 0}</div><div className="text-gray-500">复盘</div></div>
+          </div>
+          {data.quota_history?.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold text-gray-700 mb-2">近 14 天配额</div>
+              <div className="space-y-1 text-xs">
+                {data.quota_history.map((q, i) => (
+                  <div key={i} className="flex justify-between p-1.5 rounded hover:bg-gray-50">
+                    <span>{q.date}</span>
+                    <span className="text-gray-600">
+                      F {q.flash_used} / P {q.pro_used}
+                      {q.using_own_key === 1 && ' 🔑'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function AdminLogs() {
+  const { toast } = useApp();
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState({ status: '', purpose: '' });
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const qs = new URLSearchParams({ limit: '100', ...Object.fromEntries(Object.entries(filter).filter(([, v]) => v)) });
+      const r = await apiCall('/api/admin/llm-logs?' + qs);
+      setLogs(r.logs || []);
+    } catch (e) { toast(e.message, 'error'); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [filter]);
+
+  return (
+    <Card className="p-4">
+      <div className="flex gap-2 mb-3 flex-wrap">
+        <select className="px-2 py-1 rounded border border-gray-300 text-xs bg-white"
+          value={filter.status} onChange={e => setFilter({...filter, status: e.target.value})}>
+          <option value="">所有状态</option>
+          <option value="success">成功</option>
+          <option value="failed">失败</option>
+          <option value="fallback">降级</option>
+        </select>
+        <select className="px-2 py-1 rounded border border-gray-300 text-xs bg-white"
+          value={filter.purpose} onChange={e => setFilter({...filter, purpose: e.target.value})}>
+          <option value="">所有用途</option>
+          <option value="parse_resume">简历解析</option>
+          <option value="parse_jd">JD 解析</option>
+          <option value="parse_match_combined">JD合并</option>
+          <option value="match_quick">粗匹配</option>
+          <option value="match_deep">深度匹配</option>
+          <option value="review_analyze">复盘分析</option>
+          <option value="profile_from_resume">画像-简历</option>
+          <option value="profile_from_jd">画像-JD</option>
+          <option value="profile_audit">画像自审</option>
+          <option value="practice_generate">陪练生成</option>
+          <option value="suggestion_generate">建议生成</option>
+        </select>
+      </div>
+      {loading ? (
+        <div className="text-sm text-gray-400 py-4 text-center">加载中...</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="text-gray-500">
+              <tr>
+                <th className="text-left p-2">时间</th>
+                <th className="text-left p-2">用户</th>
+                <th className="text-left p-2">模型</th>
+                <th className="text-left p-2">用途</th>
+                <th className="text-right p-2">Tokens</th>
+                <th className="text-right p-2">耗时</th>
+                <th className="text-left p-2">状态</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {logs.map(l => (
+                <tr key={l.id} className="hover:bg-gray-50">
+                  <td className="p-2 font-mono text-gray-600">{new Date(l.created_at).toLocaleTimeString('zh-CN')}</td>
+                  <td className="p-2 text-gray-700">{l.name || l.email || l.user_id?.slice(0, 10) || '—'}</td>
+                  <td className="p-2 font-mono text-[10px] text-gray-500">{l.model.replace('deepseek-', '')}</td>
+                  <td className="p-2 text-gray-700">{l.purpose}</td>
+                  <td className="p-2 text-right text-gray-600">{(l.input_tokens || 0) + (l.output_tokens || 0)}</td>
+                  <td className="p-2 text-right text-gray-600">{l.duration_ms}ms</td>
+                  <td className="p-2">
+                    <span className={
+                      'px-1.5 py-0.5 rounded text-[10px] ' +
+                      (l.status === 'success' ? 'bg-emerald-50 text-emerald-700' :
+                       l.status === 'fallback' ? 'bg-amber-50 text-amber-700' :
+                       'bg-rose-50 text-rose-700')
+                    }>{l.status}</span>
+                  </td>
+                </tr>
+              ))}
+              {logs.length === 0 && <tr><td colSpan="7" className="text-center py-4 text-gray-400">无数据</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function AdminCron() {
+  const { toast } = useApp();
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const run = async () => {
+    if (!confirm('手动触发每日任务？会检查所有用户的未复盘提醒 + 对符合条件的画像自审（可能消耗多次 Pro 配额）')) return;
+    setRunning(true);
+    try {
+      const r = await apiCall('/api/admin/cron/run-daily', { method: 'POST' });
+      setResult(r.summary);
+      toast('执行完成', 'success');
+    } catch (e) { toast(e.message, 'error'); }
+    setRunning(false);
+  };
+
+  return (
+    <Card className="p-5">
+      <h3 className="font-semibold text-gray-900 mb-2">每日 Cron 任务</h3>
+      <p className="text-sm text-gray-600 mb-4">
+        Cloudflare Cron 定时在北京时间 09:00 自动跑。也可以手动触发用于测试。
+      </p>
+      <Button variant="primary" onClick={run} disabled={running}>
+        {running ? '执行中...' : '▶️ 立即执行'}
+      </Button>
+      {result && (
+        <div className="mt-4 p-3 rounded bg-gray-50 text-xs font-mono">
+          <div>面试未复盘提醒：推送 {result.review_reminder?.reminded_users || 0} 个用户（共 {result.review_reminder?.pending_reviews || 0} 场面试）</div>
+          <div>画像自审：处理 {result.profile_audit?.processed || 0} 个用户 · 失败 {result.profile_audit?.failed || 0}</div>
+          <div className="text-gray-400 mt-1">耗时：{result.started_at} → {result.finished_at}</div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function AdminConfig() {
+  const { toast } = useApp();
+  const [config, setConfig] = useState(null);
+  const [flashQuota, setFlashQuota] = useState(50);
+  const [proQuota, setProQuota] = useState(5);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    apiCall('/api/admin/config').then(r => {
+      setConfig(r);
+      setFlashQuota(r.quota.FAST);
+      setProQuota(r.quota.PRO);
+    });
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await apiCall('/api/admin/config', {
+        method: 'POST',
+        body: JSON.stringify({ flash_quota: flashQuota, pro_quota: proQuota }),
+      });
+      toast('已保存（运行时生效，Worker 重启后恢复默认）', 'success');
+    } catch (e) { toast(e.message, 'error'); }
+    setSaving(false);
+  };
+
+  if (!config) return <Card className="p-8 text-center text-gray-400 text-sm">加载中...</Card>;
+
+  return (
+    <Card className="p-5 space-y-4">
+      <h3 className="font-semibold text-gray-900">全局配置</h3>
+
+      <div className="space-y-2 text-sm">
+        <div className="flex justify-between"><span className="text-gray-500">版本</span><span>{config.version}</span></div>
+        <div className="flex justify-between"><span className="text-gray-500">邮件发件人</span><span className="font-mono text-xs">{config.email_from}</span></div>
+        <div className="flex justify-between"><span className="text-gray-500">Flash 模型</span><span className="font-mono text-xs">{config.models.FAST}</span></div>
+        <div className="flex justify-between"><span className="text-gray-500">Pro 模型</span><span className="font-mono text-xs">{config.models.PRO}</span></div>
+      </div>
+
+      <div className="pt-3 border-t border-gray-100">
+        <h4 className="font-medium text-gray-900 text-sm mb-2">每日配额</h4>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-gray-600 mb-1 block">Flash / 天</label>
+            <input type="number" min="1" max="500" className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
+              value={flashQuota} onChange={e => setFlashQuota(Number(e.target.value))} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600 mb-1 block">Pro / 天</label>
+            <input type="number" min="1" max="100" className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
+              value={proQuota} onChange={e => setProQuota(Number(e.target.value))} />
+          </div>
+        </div>
+        <div className="mt-3">
+          <Button variant="primary" onClick={save} disabled={saving}>{saving ? '保存中...' : '保存'}</Button>
+          <span className="ml-3 text-xs text-gray-400">⚠️ 运行时生效，Worker 重启后会恢复默认</span>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 // ==================== 占位页面（后续轮次填充）====================
 function PlaceholderPage({ title, desc }) {
   return (
@@ -2506,11 +3567,11 @@ function Router() {
     case 'jds': return hasId ? <JDDetailPage /> : <JDsPage />;
     case 'positions': return hasId ? <PositionDetailPage /> : <PositionsPage />;
     case 'profile': return <ProfilePage />;
-    case 'practice': return <PlaceholderPage title="陪练题" desc="LLM 深挖 + Tavily 搜索真实面经 + 你自己粘贴" />;
-    case 'suggestions': return <PlaceholderPage title="AI 建议" desc="基于画像的个性化行动建议" />;
-    case 'notifications': return <PlaceholderPage title="通知中心" desc="状态变化 + 画像洞察 + AI 建议" />;
-    case 'settings': return <PlaceholderPage title="设置" desc="通知偏好 / BYOK / 邮箱绑定（开发中）" />;
-    case 'admin': return <PlaceholderPage title="管理面板" desc="全局数据 + 用户管理 + LLM 日志" />;
+    case 'practice': return <PracticePage />;
+    case 'suggestions': return <SuggestionsPage />;
+    case 'notifications': return <NotificationsPage />;
+    case 'settings': return <SettingsPage />;
+    case 'admin': return <AdminPage />;
     default: return <HomePage />;
   }
 }
