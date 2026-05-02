@@ -229,12 +229,16 @@
   .modal-card {
     background: #fff;
     width: 100%;
-    max-height: 90vh;
+    max-height: 75vh;
     overflow-y: auto;
     border-radius: 16px;
     box-shadow: 0 12px 28px -6px rgb(0 0 0 / 0.12), 0 4px 8px -2px rgb(0 0 0 / 0.06);
     animation: modalScaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
+
+  /* 弹窗内部紧凑间距 */
+  .modal-body { padding: 16px; }
+  .modal-header { padding: 14px 16px; }
 
   /* 移动端（<640px）：底部抽屉 */
   @media (max-width: 639px) {
@@ -244,16 +248,16 @@
       background: rgba(0, 0, 0, 0.35);
     }
     .modal-card {
-      max-height: 85vh;
+      max-height: 80vh;
       border-radius: 16px 16px 0 0;
       box-shadow: 0 -4px 20px rgb(0 0 0 / 0.1);
       animation: modalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
     }
     .modal-card .modal-body {
-      padding: 16px;
+      padding: 14px;
     }
     .modal-card .modal-header {
-      padding: 14px 16px;
+      padding: 12px 14px;
     }
   }
 
@@ -1070,7 +1074,7 @@ function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }) {
             </button>
           </div>
         )}
-        <div className="modal-body p-5">{children}</div>
+        <div className="modal-body">{children}</div>
       </div>
     </div>
   );
@@ -1301,7 +1305,7 @@ function ResumeEditor({ mode, data, onClose, onSaved }) {
 
   return (
     <Modal open onClose={onClose} title={mode === 'new' ? '粘贴新简历' : '编辑简历'} maxWidth="max-w-2xl">
-      <div className="space-y-4">
+      <div className="space-y-3">
         <div>
           <label className="text-xs font-medium text-gray-700 mb-1 block">简历标题</label>
           <input className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
@@ -1309,7 +1313,7 @@ function ResumeEditor({ mode, data, onClose, onSaved }) {
         </div>
         <div>
           <label className="text-xs font-medium text-gray-700 mb-1 block">简历内容（粘贴纯文本）</label>
-          <textarea className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm leading-relaxed" rows={12}
+          <textarea className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm leading-relaxed" rows={8}
             placeholder="粘贴完整简历文本，AI 会自动识别并结构化..."
             value={rawText} onChange={e => setRawText(e.target.value)} />
           <div className="text-xs text-gray-400 mt-1">{rawText.length} 字</div>
@@ -1599,7 +1603,7 @@ function JDEditor({ onClose, onSaved }) {
     <Modal open onClose={onClose} title="粘贴新 JD" maxWidth="max-w-2xl">
       <div className="space-y-3">
         {/* 预填 */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="text-xs font-medium text-gray-700 mb-1 block">公司名（选填）</label>
             <input className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
@@ -1616,7 +1620,7 @@ function JDEditor({ onClose, onSaved }) {
 
         <div>
           <label className="text-xs font-medium text-gray-700 mb-1 block">JD 文本</label>
-          <textarea className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm leading-relaxed" rows={11}
+          <textarea className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm leading-relaxed" rows={7}
             placeholder="从招聘网站/邮件/公众号复制岗位 JD 全文..."
             value={rawText} onChange={e => setRawText(e.target.value)} />
           <div className="text-xs text-gray-400 mt-1">{rawText.length} 字</div>
@@ -1907,7 +1911,7 @@ function JDEditModal({ jd, onClose, onSaved }) {
   return (
     <Modal open onClose={onClose} title="编辑 JD" maxWidth="max-w-2xl">
       <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="text-xs font-medium text-gray-700 mb-1 block">公司名</label>
             <input className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
@@ -1921,7 +1925,7 @@ function JDEditModal({ jd, onClose, onSaved }) {
         </div>
         <div>
           <label className="text-xs font-medium text-gray-700 mb-1 block">JD 原文（修改会触发 AI 重新分析）</label>
-          <textarea rows={11} className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm leading-relaxed"
+          <textarea rows={7} className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm leading-relaxed"
             value={rawText} onChange={e => setRawText(e.target.value)} />
           <div className="text-xs text-gray-400 mt-1">{rawText.length} 字</div>
         </div>
@@ -2418,7 +2422,7 @@ function ReviewEditorModal({ positionId, defaultRoundId, rounds, onClose, onDone
         </div>
         <div>
           <label className="text-xs font-medium text-gray-700 mb-1 block">复盘文本（问答、感觉、印象）</label>
-          <textarea rows={12} className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm leading-relaxed"
+          <textarea rows={7} className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm leading-relaxed"
             placeholder={"粘贴面试的完整回忆，越详细越好。示例：\n面试官问：你为什么选择产品方向？\n我答：因为我觉得..."}
             value={rawText} onChange={e => setRawText(e.target.value)} />
           <div className="text-xs text-gray-400 mt-1">{rawText.length} 字 · 建议 300 字以上</div>
