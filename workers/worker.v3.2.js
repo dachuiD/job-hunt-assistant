@@ -2635,6 +2635,8 @@ async function handleGeneratePractice(request, env) {
       const webQs = await searchBaiduQuestions(env, {
         company: position.company,
         position_title: position.position_title,
+        city: jd?.city || null,
+        job_type: jd?.job_type || null,
         count: Math.ceil(count * 0.4),
         user,
       });
@@ -2703,16 +2705,17 @@ ${jd ? '【JD】' + (jd.parsed_json ? JSON.stringify(safeParseJson(jd.parsed_jso
 }
 
 // 百度搜索面经 v3.2（替换 Tavily）
-async function searchBaiduQuestions(env, { company, position_title, count, user }) {
+async function searchBaiduQuestions(env, { company, position_title, city, job_type, count, user }) {
   const baiduKey = await getSecret(env.BAIDU_API_KEY);
   if (!baiduKey) return [];
 
-  // 构建搜索 query，用双引号强制精准匹配公司+岗位名
-  const suffix = '面试 真题 面经';
-  let q = `"${company}" ${position_title} ${suffix}`;
+  // 构建搜索 query：公司 + 岗位全称 + 城市/类型（如有）+ 面试真题
+  const extra = [city, job_type].filter(Boolean).join(' ');
+  const suffix = extra ? `${extra} 面试 真题` : '面试 真题 面经';
+  let q = `${company} ${position_title} ${suffix}`;
   if (q.length > 72) {
-    q = `"${company}" ${position_title} 面试 真题`;
-    if (q.length > 72) q = `${company} ${position_title} 面试 真题`.slice(0, 72);
+    q = `${company} ${position_title} 面试 真题`;
+    if (q.length > 72) q = q.slice(0, 72);
   }
 
   const preferredDomains = ['nowcoder.com', 'xiaohongshu.com', 'zhihu.com'];
