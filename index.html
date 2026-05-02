@@ -3259,7 +3259,7 @@ function ReviewsPage() {
 
 // ==================== 通知中心 ====================
 function NotificationsPage() {
-  const { toast } = useApp();
+  const { toast, refreshUser } = useApp();
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showPref, setShowPref] = useState(false);
@@ -3277,6 +3277,7 @@ function NotificationsPage() {
     try {
       await apiCall('/api/notifications/' + id + '/read', { method: 'POST' });
       load();
+      refreshUser();
     } catch {}
   };
   const markAllRead = async () => {
@@ -3284,6 +3285,7 @@ function NotificationsPage() {
       await apiCall('/api/notifications/read-all', { method: 'POST' });
       toast('已全部标记已读', 'success');
       load();
+      refreshUser();
     } catch (e) { toast(e.message, 'error'); }
   };
   const del = async (id) => {
