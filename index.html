@@ -211,18 +211,21 @@
     animation: toastSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
-  /* ===== Modal 弹窗系统（纯 CSS，不依赖 Tailwind max-sm 变体） ===== */
+  /* ===== Modal 弹窗系统（纯 CSS + Portal 挂载到 body） ===== */
 
   .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.3);
+    background: rgba(0, 0, 0, 0);
     z-index: 100;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 12px;
-    animation: modalFadeIn 0.2s ease-out both;
+    animation: overlayIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  @supports (backdrop-filter: blur(1px)) {
+    .modal-overlay { backdrop-filter: blur(2px); }
   }
 
   .modal-card {
@@ -232,8 +235,8 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     border-radius: 16px;
-    box-shadow: 0 12px 28px -6px rgb(0 0 0 / 0.12), 0 4px 8px -2px rgb(0 0 0 / 0.06);
-    animation: modalScaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+    box-shadow: 0 0 0 0 rgb(0 0 0 / 0);
+    animation: cardSpringIn 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
 
   .modal-header {
@@ -257,28 +260,36 @@
     .modal-overlay {
       align-items: flex-end;
       padding: 0;
-      background: rgba(0, 0, 0, 0.35);
+      background: rgba(0, 0, 0, 0);
     }
     .modal-card {
       max-height: 70vh;
       border-radius: 16px 16px 0 0;
-      box-shadow: 0 -4px 20px rgb(0 0 0 / 0.1);
-      animation: modalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+      animation: sheetSpringUp 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
     }
     .modal-header { padding: 10px 14px; }
     .modal-body { padding: 14px; }
   }
 
-  @keyframes modalFadeIn {
-    0% { opacity: 0; }
-    100% { opacity: 1; }
+  /* —— 动效关键帧 —— */
+
+  /* 遮罩渐入 + 模糊 */
+  @keyframes overlayIn {
+    0%   { opacity: 0; background: rgba(0, 0, 0, 0); }
+    100% { opacity: 1; background: rgba(0, 0, 0, 0.35); }
   }
-  @keyframes modalScaleIn {
-    0% { opacity: 0; transform: scale(0.96); }
-    100% { opacity: 1; transform: scale(1); }
+
+  /* 桌面弹窗：弹性缩放入场（轻微 overshoot 回弹） */
+  @keyframes cardSpringIn {
+    0%   { opacity: 0; transform: scale(0.92) translateY(16px); box-shadow: 0 0 0 0 rgb(0 0 0 / 0); }
+    60%  { opacity: 1; transform: scale(1.015) translateY(-2px); box-shadow: 0 8px 24px -4px rgb(0 0 0 / 0.08); }
+    100% { opacity: 1; transform: scale(1) translateY(0);     box-shadow: 0 12px 28px -6px rgb(0 0 0 / 0.12), 0 4px 8px -2px rgb(0 0 0 / 0.06); }
   }
-  @keyframes modalSlideUp {
-    0% { opacity: 0; transform: translateY(100%); }
+
+  /* 移动端底部抽屉：弹升入场 */
+  @keyframes sheetSpringUp {
+    0%   { opacity: 0; transform: translateY(70px); }
+    65%  { opacity: 1; transform: translateY(-4px); }
     100% { opacity: 1; transform: translateY(0); }
   }
 </style>
@@ -780,8 +791,8 @@ function OnboardingFlow({ onDone }) {
   const current = cards[step];
 
   return (
-    <div className={'modal-overlay transition-opacity duration-250 ' + (leaving ? 'opacity-0' : '')} style={{ animation: leaving ? 'none' : 'modalFadeIn 0.2s ease-out both' }}>
-      <div className={'modal-card max-w-md p-5 sm:p-6 transition-all duration-250 ' + (leaving ? 'opacity-0 scale-95' : '')} style={{ animation: leaving ? 'none' : undefined }}>
+    <div className={'modal-overlay transition-opacity duration-300 ' + (leaving ? 'opacity-0' : '')} style={leaving ? { animation: 'none' } : {}}>
+      <div className={'modal-card max-w-md p-5 sm:p-6 transition-all duration-300 ' + (leaving ? 'opacity-0 scale-95' : '')} style={leaving ? { animation: 'none' } : {}}>
         {/* 步骤指示器 */}
         <div className="flex gap-1.5 mb-5">
           {cards.map((_, i) => (
