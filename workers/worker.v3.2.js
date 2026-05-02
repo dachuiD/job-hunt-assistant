@@ -13,11 +13,12 @@
 // ============================================================
 
 // ==================== 模型常量 ====================
+// DeepSeek 官方模型名（不可自定义，必须匹配 api.deepseek.com 支持的列表）
 const LLM_MODELS = {
-  FAST: 'deepseek-v4-flash',     // 提取、分类、文案
-  PRO: 'deepseek-v4-pro',         // 推理、匹配、画像、复盘
-  FALLBACK_FAST: 'deepseek-chat', // V4 失败兜底
-  FALLBACK_PRO: 'deepseek-reasoner',
+  FAST: 'deepseek-chat',             // V3 快速模型（提取、分类、文案）
+  PRO: 'deepseek-reasoner',          // R1 推理模型（匹配、画像、复盘）
+  FALLBACK_FAST: 'deepseek-chat',
+  FALLBACK_PRO: 'deepseek-chat',     // reasoner 失败时降级到 chat
 };
 
 // ==================== 通用工具 ====================

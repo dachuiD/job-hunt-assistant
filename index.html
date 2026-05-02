@@ -991,6 +991,16 @@ function EmptyState({ icon = '📄', title, desc, action }) {
 }
 
 function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }) {
+  // 响应式宽度映射：小屏强制全宽，大屏用设定的最大宽度
+  const responsiveMax = {
+    'max-w-lg':   'max-w-[calc(100vw-24px)] sm:max-w-lg',
+    'max-w-xl':   'max-w-[calc(100vw-24px)] sm:max-w-xl',
+    'max-w-2xl':  'max-w-[calc(100vw-24px)] sm:max-w-2xl',
+    'max-w-3xl':  'max-w-[calc(100vw-24px)] sm:max-w-3xl',
+    'max-w-4xl':  'max-w-[calc(100vw-24px)] sm:max-w-4xl',
+  };
+  const actualMax = responsiveMax[maxWidth] || maxWidth;
+
   useEffect(() => {
     if (!open) return;
     const handler = (e) => e.key === 'Escape' && onClose();
@@ -1000,8 +1010,8 @@ function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }) {
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
-      <div className={'bg-white rounded-2xl shadow-float w-full ' + maxWidth + ' max-h-[90vh] overflow-auto animate-scale-in'} onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-3 sm:p-4 animate-fade-in" onClick={onClose}>
+      <div className={'bg-white rounded-2xl shadow-float w-full mx-auto ' + actualMax + ' max-h-[85vh] sm:max-h-[90vh] overflow-y-auto animate-scale-in'} onClick={e => e.stopPropagation()}>
         {title && (
           <div className="sticky top-0 bg-white/95 backdrop-blur border-b border-gray-100 px-5 py-3 flex items-center justify-between rounded-t-2xl">
             <h3 className="font-semibold text-gray-900">{title}</h3>
