@@ -3184,6 +3184,46 @@ async function handleSetBYOK(request, env) {
   return jsonResp({ ok: true, has_key: !!key });
 }
 
+// POST /api/me/reset —— 重置账号（清除所有数据，回到 onboarding）
+async function handleResetMe(request, env) {
+  const { user, error } = await requireAuth(request, env);
+  if (error) return error;
+  const db = env.DB;
+  const uid = user.id;
+
+  // 按依赖顺序删除：先删子表，再删主表
+  // profile_evidences 依赖 profile_tags
+  await db.prepare(
+    `DELETE FROM profile_evidences WHERE tag_id IN (SELECT id FROM profile_tags WHERE user_id = ?)`
+  ).bind(uid).run();
+  await db.prepare(`DELETE FROM profile_tags WHERE user_id = ?`).bind(uid).run();
+  await db.prepare(`DELETE FROM profile_audits WHERE user_id = ?`).bind(uid).run();
+
+  // position_status_history / interview_rounds 依赖 positions
+  await db.prepare(
+    `DELETE FROM position_status_history WHERE position_id IN (SELECT id FROM positions WHERE user_id = ?)`
+  ).bind(uid).run();
+  await db.prepare(
+    `DELETE FROM interview_rounds WHERE position_id IN (SELECT id FROM positions WHERE user_id = ?)`
+  ).bind(uid).run();
+
+  await db.prepare(`DELETE FROM resumes WHERE user_id = ?`).bind(uid).run();
+  await db.prepare(`DELETE FROM jds WHERE user_id = ?`).bind(uid).run();
+  await db.prepare(`DELETE FROM positions WHERE user_id = ?`).bind(uid).run();
+  await db.prepare(`DELETE FROM practice_questions WHERE user_id = ?`).bind(uid).run();
+  await db.prepare(`DELETE FROM reviews WHERE user_id = ?`).bind(uid).run();
+  await db.prepare(`DELETE FROM position_suggestions WHERE user_id = ?`).bind(uid).run();
+  await db.prepare(`DELETE FROM notifications WHERE user_id = ?`).bind(uid).run();
+  await db.prepare(`DELETE FROM notification_preferences WHERE user_id = ?`).bind(uid).run();
+  await db.prepare(`DELETE FROM llm_call_logs WHERE user_id = ?`).bind(uid).run();
+  await db.prepare(`DELETE FROM usage_quota WHERE user_id = ?`).bind(uid).run();
+
+  // 重置 onboarded 状态，让用户重新走引导
+  await db.prepare(`UPDATE users SET onboarded = 0 WHERE id = ?`).bind(uid).run();
+
+  return jsonResp({ ok: true });
+}
+
 // ==================== 匹配打分：粗分（Flash）====================
 // 6档颜色映射，绿色细分 + 柔和弱化，避免刺眼
 // band: 'excellent' | 'great' | 'good' | 'fair' | 'low' | 'poor'
@@ -3587,6 +3627,7 @@ async function handleRequest(request, env, ctx) {
   // --- 当前用户配额/BYOK ---
   if (path === '/api/me/quota' && method === 'GET') return handleGetQuota(request, env);
   if (path === '/api/me/byok' && method === 'POST') return handleSetBYOK(request, env);
+  if (path === '/api/me/reset' && method === 'POST') return handleResetMe(request, env);
 
   // --- 简历 ---
   if (path === '/api/resumes' && method === 'GET') return handleListResumes(request, env);
