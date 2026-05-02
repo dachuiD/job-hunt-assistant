@@ -106,6 +106,109 @@
   @media (max-width: 767px) {
     .sidebar-mobile-overlay { display: block !important; }
   }
+
+  /* ===== v3.2 高级动效系统（仅 CSS transform/opacity，GPU 加速，60fps） ===== */
+
+  /* 页面入场：淡入 + 上移 */
+  @keyframes pageEnter {
+    0% { opacity: 0; transform: translateY(12px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  .animate-page-enter {
+    animation: pageEnter 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* 卡片交错浮现：子元素依次入场 */
+  .stagger-cards > * {
+    opacity: 0;
+    animation: cardReveal 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  @keyframes cardReveal {
+    0% { opacity: 0; transform: translateY(16px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  .stagger-cards > *:nth-child(1) { animation-delay: 0.05s; }
+  .stagger-cards > *:nth-child(2) { animation-delay: 0.1s; }
+  .stagger-cards > *:nth-child(3) { animation-delay: 0.15s; }
+  .stagger-cards > *:nth-child(4) { animation-delay: 0.2s; }
+  .stagger-cards > *:nth-child(5) { animation-delay: 0.25s; }
+  .stagger-cards > *:nth-child(6) { animation-delay: 0.3s; }
+  .stagger-cards > *:nth-child(7) { animation-delay: 0.35s; }
+  .stagger-cards > *:nth-child(8) { animation-delay: 0.4s; }
+
+  /* 骨架屏加载：脉冲呼吸 */
+  @keyframes skeletonPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .skeleton {
+    background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%);
+    background-size: 200% 100%;
+    animation: skeletonPulse 1.5s ease-in-out infinite;
+    border-radius: 6px;
+  }
+
+  /* 数字跳动：配额计数器 */
+  @keyframes countUp {
+    0% { opacity: 0; transform: translateY(8px) scale(0.9); }
+    60% { transform: translateY(-1px) scale(1.02); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .animate-count {
+    animation: countUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* 卡片 hover 增强：3D 微抬 + 光晕 */
+  .card-apple {
+    transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1),
+                box-shadow 280ms cubic-bezier(0.16, 1, 0.3, 1),
+                border-color 200ms;
+  }
+  .card-apple.clickable:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px -6px rgb(0 0 0 / 0.12), 0 2px 6px -2px rgb(0 0 0 / 0.06);
+  }
+  .card-apple.clickable:active {
+    transform: translateY(-1px);
+    transition-duration: 100ms;
+  }
+
+  /* 标签入场：缩放弹出 */
+  @keyframes tagPop {
+    0% { opacity: 0; transform: scale(0.85); }
+    70% { transform: scale(1.05); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  .animate-tag-pop {
+    animation: tagPop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+
+  /* 圆圈波纹：通知未读数 */
+  @keyframes notifPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(244 63 94 / 0.4); }
+    50% { box-shadow: 0 0 0 6px rgb(244 63 94 / 0); }
+  }
+  .badge-pulse {
+    animation: notifPulse 2s ease-in-out infinite;
+  }
+
+  /* 输入框聚焦增强 */
+  input:focus, textarea:focus, select:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgb(37 99 235 / 0.15), 0 2px 8px rgb(37 99 235 / 0.08);
+    border-color: #2563eb !important;
+    transition: box-shadow 250ms cubic-bezier(0.16, 1, 0.3, 1),
+                border-color 200ms;
+  }
+
+  /* Toast 通知滑入增强 */
+  @keyframes toastSlideIn {
+    0% { opacity: 0; transform: translateX(24px) translateY(-8px); }
+    100% { opacity: 1; transform: translateX(0) translateY(0); }
+  }
+  .animate-toast-in {
+    animation: toastSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
 </style>
 </head>
 <body>
@@ -285,7 +388,7 @@ function ToastStack() {
       {toasts.map(t => (
         <div key={t.id}
           className={
-            'pointer-events-auto animate-slide-up px-4 py-3 rounded-xl shadow-lifted text-sm font-medium min-w-[260px] max-w-[360px] flex items-start gap-2 ' +
+            'pointer-events-auto animate-toast-in px-4 py-3 rounded-xl shadow-lifted text-sm font-medium min-w-[260px] max-w-[360px] flex items-start gap-2 ' +
             (t.type === 'error' ? 'bg-rose-50 text-rose-900 border border-rose-200' :
              t.type === 'success' ? 'bg-emerald-50 text-emerald-900 border border-emerald-200' :
              'bg-white text-gray-900 border border-gray-200')
@@ -384,7 +487,7 @@ function Layout({ children }) {
                 className="relative p-2 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 btn-apple">
                 <Icon.Bell className="w-5 h-5" />
                 {unreadCount > 0 && (
-                  <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center animate-scale-in">
+                  <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center animate-scale-in badge-pulse">
                     {unreadCount > 9 ? '9+' : unreadCount}
                   </span>
                 )}
@@ -447,7 +550,7 @@ function Layout({ children }) {
 
         {/* 主内容 */}
         <main className="flex-1 min-w-0">
-          <div className="max-w-6xl mx-auto px-4 md:px-8 py-6 md:py-8">
+          <div className="max-w-6xl mx-auto px-4 md:px-8 py-6 md:py-8 animate-page-enter">
             {children}
           </div>
         </main>
@@ -456,45 +559,21 @@ function Layout({ children }) {
   );
 }
 
-// ==================== 引导卡牌 Onboarding ====================
+// ==================== 引导卡牌 Onboarding v3.2 ====================
 function OnboardingFlow({ onDone }) {
   const { toast, refreshUser } = useApp();
   const [step, setStep] = useState(0);
+  const [leaving, setLeaving] = useState(false);
   const [form, setForm] = useState({
-    name: '', target_track: '', target_stage: '', school: '', major: '', graduation_year: '',
+    name: '', target_track: '', school: '', graduation_year: '',
   });
   const [submitting, setSubmitting] = useState(false);
 
-  const cards = [
-    {
-      title: '欢迎来到求职小助 👋',
-      desc: '我是你的 AI 求职陪跑管家。会帮你：',
-      body: (
-        <ul className="space-y-2 text-sm text-gray-700">
-          <li className="flex gap-2"><span className="text-accent-500">•</span>把简历、JD、面试复盘全流程串起来</li>
-          <li className="flex gap-2"><span className="text-accent-500">•</span>用你粘贴的真实数据训练画像，越用越懂你</li>
-          <li className="flex gap-2"><span className="text-accent-500">•</span>为每个岗位做客观匹配打分和针对性建议</li>
-        </ul>
-      ),
-    },
-    {
-      title: '先认识一下',
-      desc: '填一些基础信息让 AI 更懂你（可以随时修改）',
-      form: true,
-    },
-    {
-      title: '一切就绪',
-      desc: '你现在可以开始粘贴简历和 JD 了。核心流程：',
-      body: (
-        <ol className="space-y-2 text-sm text-gray-700 list-decimal list-inside">
-          <li>粘贴一份主简历 → AI 解析</li>
-          <li>粘贴目标岗位 JD → 自动匹配打分</li>
-          <li>面试后粘贴复盘文本 → AI 给出改进建议</li>
-          <li>画像随使用深度越来越准确</li>
-        </ol>
-      ),
-    },
-  ];
+  const skip = () => {
+    setLeaving(true);
+    localStorage.setItem('onboarding_dismissed', '1');
+    setTimeout(onDone, 250);
+  };
 
   const submit = async () => {
     setSubmitting(true);
@@ -502,142 +581,161 @@ function OnboardingFlow({ onDone }) {
       await apiCall('/api/auth/onboard', {
         method: 'POST',
         body: JSON.stringify({
-          ...form,
+          name: form.name || null,
+          target_track: form.target_track || null,
+          school: form.school || null,
           graduation_year: form.graduation_year ? Number(form.graduation_year) : null,
         }),
       });
       await refreshUser();
       toast('设置完成，开始使用吧', 'success');
-      onDone();
+      setLeaving(true);
+      setTimeout(onDone, 250);
     } catch (e) {
       toast('保存失败：' + e.message, 'error');
     }
     setSubmitting(false);
   };
 
+  const cards = [
+    {
+      icon: '🧭',
+      title: '你的 AI 求职陪跑管家',
+      body: (
+        <div className="text-sm text-gray-700 leading-relaxed space-y-3">
+          <p>假设你刚在<strong className="text-brand-700">牛客网</strong>看到字节跳动的产品经理实习岗——</p>
+          <div className="bg-brand-50 rounded-lg p-3 text-xs text-brand-800 border border-brand-100">
+            把 JD 粘贴进来 → AI 自动拆解岗位要求 → 对比你的简历 → 告诉你<strong>哪里匹配、哪里差口气</strong>。
+          </div>
+        </div>
+      ),
+    },
+    {
+      icon: '📊',
+      title: '不只是打分的 JD 分析',
+      body: (
+        <div className="text-sm text-gray-700 leading-relaxed space-y-3">
+          <p>AI 会给每个 JD 打出<strong className="text-brand-700">6 档匹配评分</strong>，更关键的是——</p>
+          <div className="bg-amber-50 rounded-lg p-3 text-xs text-amber-800 border border-amber-100">
+            <strong>匹配度 78%（中等偏上）</strong><br/>
+            ✅ 你的「用户调研」经历是加分项<br/>
+            ⚠️ 「数据分析」是简历缺失的关键词<br/>
+            💡 建议面试前重点补充数据相关表达
+          </div>
+          <p className="text-xs text-gray-500">相比网上那些「AI 模拟面试」，这是一份<strong>会持续帮你追踪岗位</strong>的真实工具。</p>
+        </div>
+      ),
+    },
+    {
+      icon: '🧠',
+      title: '面试后的 AI 复盘',
+      body: (
+        <div className="text-sm text-gray-700 leading-relaxed space-y-3">
+          <p>面完腾讯二面，把你能记起来的<strong className="text-brand-700">问答对话粘贴进来</strong>——</p>
+          <div className="bg-purple-50 rounded-lg p-3 text-xs text-purple-800 border border-purple-100">
+            <strong>AI 复盘结论示例：</strong><br/>
+            ✅ 「项目经历」讲得扎实，有数据有逻辑<br/>
+            ⚠️ 「为什么选产品方向」回答太泛，缺乏个人故事<br/>
+            💡 下次用「一个具体事件 + 你的判断」的结构重讲
+          </div>
+          <p className="text-xs text-gray-500">每次复盘都会写进你的<strong>个人画像</strong>，帮助 AI 在下一次建议中更懂你。</p>
+        </div>
+      ),
+    },
+    {
+      icon: '🔄',
+      title: '越用越懂你的画像系统',
+      body: (
+        <div className="text-sm text-gray-700 leading-relaxed space-y-3">
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
+              <div className="text-gray-400 mb-1">第 1 次使用</div>
+              <div className="space-y-0.5">
+                <span className="inline-block px-1.5 py-0.5 rounded bg-brand-100 text-brand-700 text-[10px]">学校/专业</span>{' '}
+                <span className="inline-block px-1.5 py-0.5 rounded bg-brand-100 text-brand-700 text-[10px]">求职方向</span>
+              </div>
+            </div>
+            <div className="bg-brand-50 rounded-lg p-2.5 border border-brand-100">
+              <div className="text-gray-400 mb-1">第 5 次使用</div>
+              <div className="space-y-0.5">
+                <span className="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px]">竞品分析</span>{' '}
+                <span className="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px]">用户洞察</span>{' '}
+                <span className="inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px]">技术理解偏弱</span>
+              </div>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500">AI 会持续从你的<strong>简历→JD→面试复盘</strong>中学习，匹配建议越来越个性化。</p>
+        </div>
+      ),
+    },
+    {
+      icon: '🚀',
+      title: '准备好了吗？',
+      body: (
+        <div className="space-y-4">
+          <button
+            onClick={skip}
+            className="w-full py-3 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 text-white text-sm font-semibold hover:from-brand-600 hover:to-brand-700 btn-apple shadow-soft">
+            先去首页看看 →
+          </button>
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200" /></div>
+            <div className="relative flex justify-center text-xs"><span className="bg-white px-3 text-gray-400">或者</span></div>
+          </div>
+          <div className="space-y-2.5">
+            <input className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm" placeholder="你的名字" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+            <select className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white" value={form.target_track} onChange={e => setForm({...form, target_track: e.target.value})}>
+              <option value="">求职方向（选填）</option>
+              <option value="tech">技术/研发</option><option value="product">产品</option><option value="operation">运营</option><option value="market">市场/BD</option><option value="design">设计</option><option value="data">数据/分析</option><option value="other">其他</option>
+            </select>
+            <div className="grid grid-cols-2 gap-2.5">
+              <input className="px-3 py-2.5 rounded-lg border border-gray-200 text-sm" placeholder="学校（选填）" value={form.school} onChange={e => setForm({...form, school: e.target.value})} />
+              <input type="number" min="2020" max="2035" className="px-3 py-2.5 rounded-lg border border-gray-200 text-sm" placeholder="毕业年份（选填）" value={form.graduation_year} onChange={e => setForm({...form, graduation_year: e.target.value})} />
+            </div>
+            <button onClick={submit} disabled={submitting} className="w-full py-2.5 rounded-lg bg-white border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 btn-apple disabled:opacity-50">
+              {submitting ? '保存中...' : '填写信息并开始'}
+            </button>
+          </div>
+        </div>
+      ),
+    },
+  ];
+
   const current = cards[step];
 
   return (
-    <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
-      <div className="bg-white rounded-2xl shadow-float max-w-md w-full p-6 animate-scale-in">
+    <div className={'fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-opacity duration-250 ' + (leaving ? 'opacity-0' : 'animate-fade-in')}>
+      <div className={'bg-white rounded-2xl shadow-float max-w-md w-full p-6 transition-all duration-250 ' + (leaving ? 'opacity-0 scale-95' : 'animate-scale-in')}>
         {/* 步骤指示器 */}
-        <div className="flex gap-1.5 mb-6">
+        <div className="flex gap-1.5 mb-5">
           {cards.map((_, i) => (
-            <div key={i} className={
-              'h-1 rounded-full flex-1 transition-all duration-300 ' +
-              (i <= step ? 'bg-brand-600' : 'bg-gray-200')
-            } />
+            <div key={i} className={'h-1 rounded-full flex-1 transition-all duration-400 ' + (i <= step ? 'bg-brand-600' : 'bg-gray-200')} />
           ))}
         </div>
 
-        <div className="flex items-center gap-3 mb-3">
-          <Logo size={32} />
-          <h2 className="text-xl font-semibold text-gray-900">{current.title}</h2>
-        </div>
-        <p className="text-sm text-gray-600 mb-5 leading-relaxed">{current.desc}</p>
-
-        {current.body && <div className="mb-6">{current.body}</div>}
-
-        {current.form && (
-          <div className="space-y-3 mb-6">
-            <div>
-              <label className="text-xs text-gray-600 mb-1 block">姓名</label>
-              <input
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
-                placeholder="你的名字"
-                value={form.name}
-                onChange={e => setForm({...form, name: e.target.value})}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-gray-600 mb-1 block">求职方向</label>
-                <select
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white"
-                  value={form.target_track}
-                  onChange={e => setForm({...form, target_track: e.target.value})}
-                >
-                  <option value="">请选择</option>
-                  <option value="tech">技术/研发</option>
-                  <option value="product">产品</option>
-                  <option value="operation">运营</option>
-                  <option value="market">市场/BD</option>
-                  <option value="design">设计</option>
-                  <option value="data">数据/分析</option>
-                  <option value="other">其他</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-gray-600 mb-1 block">目标阶段</label>
-                <select
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white"
-                  value={form.target_stage}
-                  onChange={e => setForm({...form, target_stage: e.target.value})}
-                >
-                  <option value="">请选择</option>
-                  <option value="internship">实习</option>
-                  <option value="campus">校招</option>
-                  <option value="social">社招</option>
-                </select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-gray-600 mb-1 block">学校（选填）</label>
-                <input
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
-                  placeholder="如：清华大学"
-                  value={form.school}
-                  onChange={e => setForm({...form, school: e.target.value})}
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-600 mb-1 block">毕业年份</label>
-                <input
-                  type="number" min="2020" max="2035"
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
-                  placeholder="如：2026"
-                  value={form.graduation_year}
-                  onChange={e => setForm({...form, graduation_year: e.target.value})}
-                />
-              </div>
-            </div>
-            <div>
-              <label className="text-xs text-gray-600 mb-1 block">专业（选填）</label>
-              <input
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
-                placeholder="如：计算机科学与技术"
-                value={form.major}
-                onChange={e => setForm({...form, major: e.target.value})}
-              />
-            </div>
-          </div>
+        {/* 跳过按钮 - 始终可见 */}
+        {step < cards.length - 1 && (
+          <button onClick={skip} className="absolute top-4 right-4 text-xs text-gray-400 hover:text-gray-600 transition">跳过 →</button>
         )}
 
-        <div className="flex gap-3">
-          {step > 0 && (
-            <button
-              onClick={() => setStep(step - 1)}
-              className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 btn-apple">
-              上一步
-            </button>
-          )}
-          <div className="flex-1" />
-          {step < cards.length - 1 ? (
-            <button
-              onClick={() => setStep(step + 1)}
-              className="px-5 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 btn-apple">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-50 to-brand-100 flex items-center justify-center text-lg">{current.icon}</div>
+          <h2 className="text-lg font-semibold text-gray-900">{current.title}</h2>
+        </div>
+
+        <div className="mb-6">{current.body}</div>
+
+        {step < cards.length - 1 && (
+          <div className="flex gap-3">
+            {step > 0 && (
+              <button onClick={() => setStep(step - 1)} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 btn-apple">上一步</button>
+            )}
+            <div className="flex-1" />
+            <button onClick={() => setStep(step + 1)} className="px-5 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 btn-apple">
               继续 <Icon.ArrowRight className="inline w-4 h-4 ml-1" />
             </button>
-          ) : (
-            <button
-              onClick={submit}
-              disabled={submitting}
-              className="px-5 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 btn-apple disabled:opacity-60">
-              {submitting ? '保存中...' : '开始使用'}
-            </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -693,7 +791,7 @@ function HomePage() {
   })();
 
   return (
-    <div className="space-y-6 animate-slide-up">
+    <div className="space-y-6 animate-page-enter">
       {/* 欢迎 + 配额 */}
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
         <div>
@@ -706,12 +804,12 @@ function HomePage() {
           <div className="bg-white rounded-xl border border-gray-200 shadow-soft px-4 py-3 flex gap-5 text-sm">
             <div>
               <div className="text-xs text-gray-500">今日快速 AI</div>
-              <div className="font-semibold text-gray-900">{quota.flash.used} / {quota.flash.limit}</div>
+              <div className="font-semibold text-gray-900 animate-count">{quota.flash.used} / {quota.flash.limit}</div>
             </div>
             <div className="w-px bg-gray-200" />
             <div>
               <div className="text-xs text-gray-500">今日深度 AI</div>
-              <div className="font-semibold text-gray-900">{quota.pro.used} / {quota.pro.limit}</div>
+              <div className="font-semibold text-gray-900 animate-count">{quota.pro.used} / {quota.pro.limit}</div>
             </div>
           </div>
         )}
@@ -2112,13 +2210,30 @@ function PositionDetailPage() {
 
 function StatusUpdateModal({ current, onClose, onUpdate }) {
   const [status, setStatus] = useState(current);
+  // v3.2: 基于当前状态推荐合理下一步
+  const RECOMMENDED_NEXT = {
+    pending: 'applied',
+    applied: 'written_test',
+    written_test: 'interview_1',
+    interview_1: 'interview_2',
+    interview_2: 'interview_3plus',
+    interview_3plus: 'offer',
+    offer: 'onboard',
+  };
   return (
     <Modal open onClose={onClose} title="更新岗位状态">
       <div className="space-y-3">
         <select className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white"
           value={status} onChange={e => setStatus(e.target.value)}>
-          {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          {Object.entries(STATUS_LABELS).map(([k, v]) => (
+            <option key={k} value={k}>{v}{RECOMMENDED_NEXT[current] === k ? ' (推荐)' : ''}</option>
+          ))}
         </select>
+        {RECOMMENDED_NEXT[current] && (
+          <div className="text-xs text-gray-400 leading-relaxed">
+            💡 当前状态通常下一步是 <strong className="text-brand-600">{STATUS_LABELS[RECOMMENDED_NEXT[current]]}</strong>，也可以手动切换。
+          </div>
+        )}
         <div className="flex gap-2 justify-end">
           <Button variant="secondary" onClick={onClose}>取消</Button>
           <Button variant="primary" onClick={() => onUpdate(status)}>更新</Button>
@@ -2397,13 +2512,26 @@ function ProfilePage() {
       />
 
       {total === 0 ? (
-        <Card className="p-0">
-          <EmptyState
-            icon="🧠"
-            title="画像还是空的"
-            desc="粘贴简历和 JD，AI 会自动抽取画像标签"
-          />
-        </Card>
+        <div className="space-y-4 animate-page-enter">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white rounded-xl border border-gray-200 p-5 text-center shadow-soft stagger-cards">
+              <div className="w-10 h-10 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center mx-auto mb-3 text-lg font-bold">1</div>
+              <div className="text-sm font-semibold text-gray-900 mb-1">粘贴简历</div>
+              <div className="text-xs text-gray-500 leading-relaxed">AI 从你的学历、技能、项目经历中提取初始标签，建立画像地基。</div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-5 text-center shadow-soft stagger-cards">
+              <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3 text-lg font-bold">2</div>
+              <div className="text-sm font-semibold text-gray-900 mb-1">粘贴目标 JD</div>
+              <div className="text-xs text-gray-500 leading-relaxed">AI 分析你偏好的岗位方向和技能要求，补充求职倾向标签。</div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-5 text-center shadow-soft stagger-cards">
+              <div className="w-10 h-10 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center mx-auto mb-3 text-lg font-bold">3</div>
+              <div className="text-sm font-semibold text-gray-900 mb-1">完成一次复盘</div>
+              <div className="text-xs text-gray-500 leading-relaxed">AI 从你的面试表现推断行为特质和薄弱点，画像开始真正"认识"你。</div>
+            </div>
+          </div>
+          <div className="text-center text-xs text-gray-400">每次使用都会让 AI 更懂你，<span className="text-brand-600 cursor-pointer hover:underline" onClick={() => navigate('resumes')}>从粘贴简历开始 →</span></div>
+        </div>
       ) : (
         <div className="space-y-5">
           {/* 四层展开 */}
@@ -2522,7 +2650,7 @@ function ProfileTagCard({ tag, onReject }) {
   const confPercent = Math.round((tag.confidence || 0) * 100);
 
   return (
-    <div className="rounded-lg border border-gray-100 hover:border-gray-200 transition p-3">
+    <div className="rounded-lg border border-gray-100 hover:border-gray-200 transition p-3 animate-tag-pop">
       <div className="flex items-center gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -2603,7 +2731,7 @@ function PracticePage() {
 
   const sourceLabel = (s) => ({
     llm_resume_dig: '🎯 简历深挖',
-    tavily_search: '🔎 真实面经',
+    web_search: '🔎 真实面经',
     user_pasted: '✏️ 粘贴',
   }[s] || s);
 
@@ -2709,14 +2837,14 @@ function GeneratePracticeModal({ positions, onClose, onDone }) {
   const { toast } = useApp();
   const [positionId, setPositionId] = useState(positions[0]?.id || '');
   const [count, setCount] = useState(8);
-  const [sources, setSources] = useState({ resume_dig: true, tavily: true });
+  const [sources, setSources] = useState({ resume_dig: true, web_search: true });
   const [submitting, setSubmitting] = useState(false);
 
   const submit = async () => {
     if (!positionId) return toast('选择一个岗位', 'error');
     const srcArr = [];
     if (sources.resume_dig) srcArr.push('resume_dig');
-    if (sources.tavily) srcArr.push('tavily');
+    if (sources.web_search) srcArr.push('web_search');
     if (srcArr.length === 0) return toast('至少选一个来源', 'error');
     setSubmitting(true);
     try {
@@ -2758,8 +2886,8 @@ function GeneratePracticeModal({ positions, onClose, onDone }) {
                 🎯 AI 简历深挖（Flash 配额，深挖简历细节）
               </label>
               <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                <input type="checkbox" checked={sources.tavily} onChange={e => setSources({...sources, tavily: e.target.checked})} className="w-4 h-4 rounded accent-brand-600" />
-                🔎 Tavily 真实面经搜索（不占 LLM 配额）
+                <input type="checkbox" checked={sources.web_search} onChange={e => setSources({...sources, web_search: e.target.checked})} className="w-4 h-4 rounded accent-brand-600" />
+                🔎 百度真实面经搜索（百度千帆 API）
               </label>
             </div>
           </>
@@ -3659,7 +3787,19 @@ function LoadingScreen() {
 
 function AppRoot() {
   const { user, loading } = useApp();
-  const needOnboarding = user && !user.onboarded;
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+    if (!user) return false;
+    // v3.2: onboarding 不再强制，跳过就记 localStorage
+    if (localStorage.getItem('onboarding_dismissed')) return false;
+    return true;
+  });
+
+  // user 加载完成后判断
+  useEffect(() => {
+    if (user && !user.onboarded && !localStorage.getItem('onboarding_dismissed')) {
+      setShowOnboarding(true);
+    }
+  }, [user]);
 
   if (loading) return <LoadingScreen />;
   if (!user) return (
@@ -3677,7 +3817,7 @@ function AppRoot() {
         <Router />
       </Layout>
       <DeviceNoticeBubble />
-      {needOnboarding && <OnboardingFlow onDone={() => { /* user 已通过 refreshUser 更新 */ }} />}
+      {showOnboarding && <OnboardingFlow onDone={() => setShowOnboarding(false)} />}
     </>
   );
 }
