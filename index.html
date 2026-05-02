@@ -1075,7 +1075,7 @@ function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }) {
     return () => { document.removeEventListener('keydown', handler); document.body.style.overflow = ''; };
   }, [open, onClose]);
   if (!open) return null;
-  return (
+  return ReactDOM.createPortal(
     <div className="modal-overlay" onClick={onClose}>
       <div className={'modal-card ' + maxWidth} onClick={e => e.stopPropagation()}>
         {title && (
@@ -1088,7 +1088,8 @@ function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }) {
         )}
         <div className="modal-body">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
