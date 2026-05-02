@@ -1,7 +1,7 @@
 // ============================================================
-// 求职小助 v3.1 Cloudflare Worker
+// 求职小助 v3.2 Cloudflare Worker
 // 架构：画像池中心 + 四层输入 + 四类AI输出
-// 生成时间: 2026-04-25
+// 生成时间: 2026-05-02
 //
 // 部署说明：
 // 1. 绑定 D1: binding="DB", database="job-hunt-db"
@@ -2707,14 +2707,12 @@ async function searchBaiduQuestions(env, { company, position_title, count, user 
   const baiduKey = await getSecret(env.BAIDU_API_KEY);
   if (!baiduKey) return [];
 
-  // 构建搜索 query，控制在 72 字符内（百度 API 限制，中文占 2 字符）
-  const suffix = ' 面试 面经';
-  let q = `${company} ${position_title}${suffix}`;
+  // 构建搜索 query，用双引号强制精准匹配公司+岗位名
+  const suffix = '面试 真题 面经';
+  let q = `"${company}" ${position_title} ${suffix}`;
   if (q.length > 72) {
-    // 截断：优先保留 company + 面试面经，再尽量塞 position_title
-    const maxQuery = 72 - suffix.length;
-    q = `${company.slice(0, Math.max(4, maxQuery - 4))} ${position_title.slice(0, Math.max(2, maxQuery - company.length))}${suffix}`;
-    if (q.length > 72) q = q.slice(0, 72);
+    q = `"${company}" ${position_title} 面试 真题`;
+    if (q.length > 72) q = `${company} ${position_title} 面试 真题`.slice(0, 72);
   }
 
   const preferredDomains = ['nowcoder.com', 'xiaohongshu.com', 'zhihu.com'];
@@ -2765,16 +2763,16 @@ async function searchBaiduQuestions(env, { company, position_title, count, user 
   ).join('\n\n');
 
   const want = Math.max(2, count);
-  const prompt = `以下是从网上（优先牛客/小红书/知乎）搜到的关于"${company} · ${position_title}"岗位的面经素材（可能包含网页导航、广告、非面试内容）。
+  const prompt = `以下是从网上（优先牛客/小红书/知乎）搜到的关于"${company} · ${position_title}"岗位的面经素材。
 
 ${corpus}
 
-请严格筛选，提取出 ${want} 条**真实具体的面试题**，要求：
-1. 必须是明确的面试问题（可以是行为问题/专业问题/案例题），不是网页导航/标题党/广告/文章引言
-2. 题目必须**自带完整上下文**，脱离原文也能看懂
-3. 题目长度 15-150 字，不要太短也不要超长
-4. 避免重复或高度相似的题目
-5. 如果素材里没有足够像样的题目，宁可少给，也不要凑数
+请严格筛选，提取 ${want} 条**该公司该岗位的真实面试题**，要求：
+1. 必须是针对「${company}」这家公司、「${position_title}」这个岗位的真实面试问题
+2. 过滤掉泛泛的通用题（"请自我介绍""你的优缺点"这类禁止输出）
+3. 优先提取包含公司名、岗位名上下文的具体问题
+4. 题目长度 15-150 字
+5. 如果素材中确实没有该公司的具体题目，输出空数组，不要用泛题凑数
 
 输出 JSON：
 {
@@ -2787,7 +2785,7 @@ ${corpus}
   ]
 }
 
-如果素材完全无效，输出 {"questions": []}。`;
+如果没有有效题目，输出 {"questions": []}。`;
 
   let picked = [];
   try {
@@ -3485,7 +3483,7 @@ async function handleAdminGetConfig(request, env) {
     quota: DAILY_QUOTA,
     models: LLM_MODELS,
     email_from: env.EMAIL_FROM || 'onboarding@resend.dev',
-    version: 'v3.1',
+    version: 'v3.2',
   });
 }
 
@@ -3584,7 +3582,7 @@ async function handleRequest(request, env, ctx) {
   if (path === '/' || path === '/api' || path === '/api/health') {
     return jsonResp({
       ok: true,
-      version: 'v3.1',
+      version: 'v3.2',
       time: now(),
     });
   }

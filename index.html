@@ -342,6 +342,7 @@ const Icon = {
   Board: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><rect x="3" y="3" width="7" height="9" /><rect x="14" y="3" width="7" height="5" /><rect x="14" y="12" width="7" height="9" /><rect x="3" y="16" width="7" height="5" /></svg>,
   Profile: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>,
   Practice: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>,
+  Review: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><path d="M9 12l2 2 4-4" /></svg>,
   Suggestion: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M9 18h6" /><path d="M10 22h4" /><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14" /></svg>,
   Bell: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>,
   Settings: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>,
@@ -535,6 +536,7 @@ function Layout({ children }) {
     { key: 'resumes', label: '简历', icon: Icon.Resume },
     { key: 'jds', label: 'JD 库', icon: Icon.JD },
     { key: 'positions', label: '岗位看板', icon: Icon.Board },
+    { key: 'reviews', label: '复盘', icon: Icon.Review },
     { key: 'profile', label: '我的画像', icon: Icon.Profile },
     { key: 'practice', label: '陪练题', icon: Icon.Practice },
     { key: 'suggestions', label: 'AI 建议', icon: Icon.Suggestion },
@@ -631,7 +633,7 @@ function Layout({ children }) {
           <div className="px-4 py-3 border-t border-gray-100 text-[11px] text-gray-400 leading-tight">
             by dxh 同学
             <span className="mx-1.5 text-gray-300">·</span>
-            v3.1
+            v3.2
           </div>
         </aside>
 
@@ -2830,7 +2832,7 @@ function PracticePage() {
 
   const sourceLabel = (s) => ({
     llm_resume_dig: '🎯 简历深挖',
-    web_search: '🔎 真实面经',
+    web_search: '🔎 全网面经',
     user_pasted: '✏️ 粘贴',
   }[s] || s);
 
@@ -2838,7 +2840,7 @@ function PracticePage() {
     <div className="animate-slide-up">
       <PageHeader
         title="陪练题"
-        desc="AI 深挖简历 + Tavily 真实面经 + 你粘贴的题"
+        desc="AI 简历深挖 + 全网真实面经搜索 + 你粘贴的题目"
         action={
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => setPasteModal(true)}>粘贴题目</Button>
@@ -2986,7 +2988,7 @@ function GeneratePracticeModal({ positions, onClose, onDone }) {
               </label>
               <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
                 <input type="checkbox" checked={sources.web_search} onChange={e => setSources({...sources, web_search: e.target.checked})} className="w-4 h-4 rounded accent-brand-600" />
-                🔎 百度真实面经搜索（百度千帆 API）
+                🔎 全网真实面经（牛客/小红书/知乎等，精准搜岗位名+公司名）
               </label>
             </div>
           </>
@@ -3168,6 +3170,89 @@ function SuggestionsPage() {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ==================== 复盘总览（独立 Tab） ====================
+function ReviewsPage() {
+  const { toast, navigate } = useApp();
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [viewing, setViewing] = useState(null);
+
+  const load = async () => {
+    try {
+      const r = await apiCall('/api/reviews');
+      setList(r.reviews || []);
+    } catch (e) { toast(e.message, 'error'); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const relTime = (ts) => {
+    if (!ts) return '';
+    const diff = Date.now() - new Date(ts).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return '刚刚';
+    if (mins < 60) return mins + ' 分钟前';
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return hrs + ' 小时前';
+    const days = Math.floor(hrs / 24);
+    if (days < 30) return days + ' 天前';
+    return new Date(ts).toLocaleDateString('zh-CN');
+  };
+
+  const statusLabel = (s) => s === 'done' ? '✅ 已分析' : s === 'processing' ? '⏳ 分析中' : '⏳ 待分析';
+
+  const stats = { total: list.length, done: list.filter(r => r.parse_status === 'done').length };
+
+  return (
+    <div className="animate-slide-up">
+      <PageHeader
+        title="面试复盘"
+        desc={stats.total === 0 ? '每次面试后粘贴复盘，AI 帮你分析表现' : `${stats.total} 次复盘 · ${stats.done} 次已分析`}
+      />
+
+      {loading ? (
+        <Card className="p-8 text-center text-gray-400 text-sm">加载中...</Card>
+      ) : list.length === 0 ? (
+        <Card className="p-0">
+          <EmptyState
+            icon="📝"
+            title="还没有复盘记录"
+            desc="在「岗位看板」中，点击面试轮次的「复盘」按钮，粘贴面试回忆，AI 会分析你的表现并写入个人画像"
+            action={<Button variant="primary" onClick={() => navigate('positions')}>去岗位看板</Button>}
+          />
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {list.map(r => (
+            <Card key={r.id} className="p-4 clickable" onClick={() => setViewing(r.id)}>
+              <div className="flex items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <span className="text-sm font-semibold text-gray-900">{r.company || '—'}</span>
+                    {r.position_title && <span className="text-xs text-gray-500">· {r.position_title}</span>}
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{statusLabel(r.parse_status)}</span>
+                    <span className="text-[10px] text-gray-400">{relTime(r.created_at)}</span>
+                  </div>
+                  {r.preview && (
+                    <div className="text-xs text-gray-600 line-clamp-2 mt-1">{r.preview}</div>
+                  )}
+                </div>
+                <div className="flex-shrink-0 flex gap-1">
+                  {r.parse_status === 'done' && (
+                    <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setViewing(r.id); }}>查看分析</Button>
+                  )}
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {viewing && <ReviewViewer reviewId={viewing} onClose={() => setViewing(null)} />}
     </div>
   );
 }
@@ -3913,6 +3998,7 @@ function Router() {
     case 'resumes': return <ResumesPage />;
     case 'jds': return hasId ? <JDDetailPage /> : <JDsPage />;
     case 'positions': return hasId ? <PositionDetailPage /> : <PositionsPage />;
+    case 'reviews': return <ReviewsPage />;
     case 'profile': return <ProfilePage />;
     case 'practice': return <PracticePage />;
     case 'suggestions': return <SuggestionsPage />;
