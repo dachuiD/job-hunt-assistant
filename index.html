@@ -3227,19 +3227,27 @@ function WallPage() {
   const [tagFilter, setTagFilter] = useState('');
   const [viewing, setViewing] = useState(null);
   const [showPublish, setShowPublish] = useState(false);
+  const [bookmarks, setBookmarks] = useState(new Set());
 
-  const load = async () => {
+  const loadWithTab = (t) => {
+    setTab(t);
     setLoading(true);
-    try {
-      let url = '/api/cards';
-      if (search) url += '?company=' + encodeURIComponent(search);
-      if (tagFilter) url += (url.includes('?') ? '&' : '?') + 'tag=' + encodeURIComponent(tagFilter);
-      const r = await apiCall(url);
-      setCards(r.cards || []);
-    } catch (e) { toast(e.message, 'error'); }
-    setLoading(false);
+    let url = '/api/cards';
+    if (t === 'mine') url += '?mine=1';
+    if (t === 'bookmark') url += '?bookmark=1';
+    if (search) url += (url.includes('?') ? '&' : '?') + 'company=' + encodeURIComponent(search);
+    if (tagFilter) url += (url.includes('?') ? '&' : '?') + 'tag=' + encodeURIComponent(tagFilter);
+    apiCall(url).then(r => setCards(r.cards || [])).catch(e => toast(e.message, 'error')).finally(() => setLoading(false));
   };
+  const load = () => loadWithTab(tab);
   useEffect(() => { load(); }, []);
+
+  const doBookmark = async (cid) => {
+    try {
+      const r = await apiCall('/api/likes', { method: 'POST', body: JSON.stringify({ target_type: 'bookmark', target_id: cid }) });
+      setBookmarks(prev => { const next = new Set(prev); r.liked ? next.add(cid) : next.delete(cid); return next; });
+    } catch {}
+  };
 
   const relTime = (ts) => {
     if (!ts) return '';
@@ -3253,6 +3261,7 @@ function WallPage() {
   };
 
   const tags = ['产品', '技术', '运营', '数据', '设计', '市场'];
+  const [tab, setTab] = useState('all');
 
   return (
     <div className="animate-slide-up">
@@ -3265,6 +3274,20 @@ function WallPage() {
           </Button>
         }
       />
+
+      {/* Tab 切换 */}
+      <div className="flex gap-1 mb-3">
+        {[
+          { key: 'all', label: '全部' },
+          { key: 'mine', label: '我的发布' },
+          { key: 'bookmark', label: '⭐ 我的收藏' },
+        ].map(t => (
+          <button key={t.key} onClick={() => loadWithTab(t.key)}
+            className={'px-3 py-1.5 rounded-lg text-xs font-medium transition ' + (tab === t.key ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
+            {t.label}
+          </button>
+        ))}
+      </div>
 
       {/* 搜索 + 标签筛选 */}
       <div className="flex gap-2 mb-4 flex-wrap">
@@ -3314,9 +3337,13 @@ function WallPage() {
                     <span className="flex items-center gap-0.5">💬 {c.question_count || 0}</span>
                   </div>
                 </div>
-                {c.card_mode === 'q_only' && (
-                  <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">仅问题</span>
-                )}
+                <div className="flex flex-col items-end gap-1">
+                  <button onClick={(e) => { e.stopPropagation(); doBookmark(c.id); }} className="text-sm text-gray-300 hover:text-yellow-500 transition">
+                    {bookmarks.has(c.id) ? '⭐' : '☆'}
+                  </button>
+                  {c.card_mode === 'q_only' && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">仅问题</span>
+                  )}
               </div>
             </Card>
           ))}

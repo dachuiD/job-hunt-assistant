@@ -3292,13 +3292,16 @@ async function handleListCards(request, env) {
   const company = url.searchParams.get('company') || '';
   const tag = url.searchParams.get('tag') || '';
   const mine = url.searchParams.get('mine') === '1';
+  const bookmark = url.searchParams.get('bookmark') === '1';
 
   let sql = `SELECT c.*, u.name AS author_name, u.display_name AS author_display
     FROM experience_cards c LEFT JOIN users u ON c.user_id = u.id
     WHERE c.is_draft = 0`;
   const params = [];
+  const uid = user.user ? user.user.id : user.id;
 
-  if (mine) { sql += ' AND c.user_id = ?'; params.push(user.user ? user.user.id : user.id); }
+  if (mine) { sql += ' AND c.user_id = ?'; params.push(uid); }
+  if (bookmark) { sql += ' AND c.id IN (SELECT target_id FROM card_likes WHERE user_id = ? AND target_type = ?)'; params.push(uid, 'bookmark'); }
   if (company) { sql += ' AND c.company LIKE ?'; params.push(`%${company}%`); }
   if (tag) { sql += ' AND c.ai_tags LIKE ?'; params.push(`%${tag}%`); }
 
@@ -3491,7 +3494,7 @@ async function handleReplyQuestion(request, env, id, qid) {
   return jsonResp({ ok: true });
 }
 
-// POST /api/likes
+// POST /api/likes —— 点赞/书签切换（target_type: card|question|bookmark）
 async function handleLike(request, env) {
   const { user } = await requireAuth(request, env);
   if (user.error) return user.error;
@@ -3505,27 +3508,28 @@ async function handleLike(request, env) {
 
   if (existing) {
     await env.DB.prepare('DELETE FROM card_likes WHERE id = ?').bind(existing.id).run();
-    const table = body.target_type === 'card' ? 'experience_cards' : 'card_questions';
-    await env.DB.prepare(`UPDATE ${table} SET like_count = MAX(0, like_count - 1) WHERE id = ?`)
-      .bind(body.target_id).run();
+    if (body.target_type === 'card') {
+      await env.DB.prepare('UPDATE experience_cards SET like_count = MAX(0, like_count - 1) WHERE id = ?').bind(body.target_id).run();
+    } else if (body.target_type === 'question') {
+      await env.DB.prepare('UPDATE card_questions SET like_count = MAX(0, like_count - 1) WHERE id = ?').bind(body.target_id).run();
+    }
     return jsonResp({ ok: true, liked: false });
   }
 
   const lid = genId('cl');
-  await env.DB.prepare(`
-    INSERT INTO card_likes (id, user_id, target_type, target_id, created_at) VALUES (?, ?, ?, ?, ?)
-  `).bind(lid, uid, body.target_type, body.target_id, now()).run();
-
-  const table = body.target_type === 'card' ? 'experience_cards' : 'card_questions';
-  await env.DB.prepare(`UPDATE ${table} SET like_count = like_count + 1 WHERE id = ?`)
-    .bind(body.target_id).run();
+  await env.DB.prepare('INSERT INTO card_likes (id, user_id, target_type, target_id, created_at) VALUES (?, ?, ?, ?, ?)')
+    .bind(lid, uid, body.target_type, body.target_id, now()).run();
 
   if (body.target_type === 'card') {
+    await env.DB.prepare('UPDATE experience_cards SET like_count = like_count + 1 WHERE id = ?').bind(body.target_id).run();
     const card = await env.DB.prepare('SELECT user_id FROM experience_cards WHERE id = ?').bind(body.target_id).first();
     if (card && card.user_id !== uid) {
       await sendCardNotif(env, card.user_id, 'card_liked', '有人点赞了你的面经卡', '', body.target_id);
     }
+  } else if (body.target_type === 'question') {
+    await env.DB.prepare('UPDATE card_questions SET like_count = like_count + 1 WHERE id = ?').bind(body.target_id).run();
   }
+  // bookmark 不触发计数或通知
 
   return jsonResp({ ok: true, liked: true });
 }
