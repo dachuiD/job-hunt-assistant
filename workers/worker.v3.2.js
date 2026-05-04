@@ -1024,12 +1024,17 @@ async function handleCreateJD(request, env) {
   `).bind(id, user.id, prefilledCompany, prefilledTitle, raw_text, ts, ts).run();
 
   // ==================== JD 解析重试辅助 v3.2 ====================
-  // 自动重试 LLM 调用（网络超时/模型繁忙），不重试配额超限
+  // 自动重试 LLM 调用（网络超时/模型繁忙），60s 硬超时防挂死
   async function retryJDParse(fn, maxRetries = 3) {
     let lastError;
     for (let i = 0; i < maxRetries; i++) {
       try {
-        return await fn();
+        // 每次尝试加 30s 硬超时：防止 LLM 网络挂起不抛异常
+        const timed = Promise.race([
+          fn(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('LLM timeout after 30s')), 30000)),
+        ]);
+        return await timed;
       } catch (e) {
         lastError = e;
         // 配额超限不重试
