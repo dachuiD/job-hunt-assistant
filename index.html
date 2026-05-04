@@ -737,68 +737,159 @@ function OnboardingFlow({ onDone }) {
   };
 
   const cards = [
+    // 1. 总览
     {
       icon: '🧭',
       title: '你的 AI 求职陪跑管家',
       body: (
         <div className="text-sm text-gray-700 leading-relaxed space-y-3">
-          <p>假设你刚在<strong className="text-brand-700">牛客网</strong>看到字节跳动的产品经理实习岗——</p>
-          <div className="bg-brand-50 rounded-lg p-3 text-xs text-brand-800 border border-brand-100">
-            把 JD 粘贴进来 → AI 自动拆解岗位要求 → 对比你的简历 → 告诉你<strong>哪里匹配、哪里差口气</strong>。
+          <p>一个陪你走完整个求职周期的 AI 工具——<strong>投递前 → 面试前 → 面试后</strong>，每一步都有它。</p>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { emoji: '📋', label: 'JD 匹配', desc: '粘贴简历+JD，秒看匹配度' },
+              { emoji: '🎯', label: 'AI 陪练', desc: '简历深挖 + 真实面经题' },
+              { emoji: '🧠', label: '面试复盘', desc: '粘贴回忆，AI 帮你分析' },
+              { emoji: '🔄', label: '个人画像', desc: '越用越懂你，建议越来越准' },
+            ].map((item, i) => (
+              <div key={i} className="bg-gray-50 rounded-xl p-3 border border-gray-100 hover:border-brand-200 transition-colors">
+                <div className="text-lg mb-1">{item.emoji}</div>
+                <div className="text-xs font-semibold text-gray-800">{item.label}</div>
+                <div className="text-[10px] text-gray-500 mt-0.5">{item.desc}</div>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-gray-400">不用下载，不用注册，浏览器打开就是你的</p>
+        </div>
+      ),
+    },
+    // 2. JD 匹配
+    {
+      icon: '📋',
+      title: '粘贴 JD，秒懂匹配度',
+      body: (
+        <div className="text-sm text-gray-700 leading-relaxed space-y-3">
+          <p>假设你刚在招聘网站上看到了一个心仪的产品实习岗——</p>
+          <div className="bg-brand-50 rounded-xl p-3.5 text-xs text-brand-800 border border-brand-100 space-y-1.5">
+            <p>把 JD 粘贴进来 → AI <strong>自动拆解</strong>岗位要求</p>
+            <div className="flex items-center gap-2 text-gray-500">
+              <span className="w-1 h-1 rounded-full bg-brand-400" />
+              <span>对比你的简历，找出<strong>匹配点</strong></span>
+            </div>
+            <div className="flex items-center gap-2 text-gray-500">
+              <span className="w-1 h-1 rounded-full bg-amber-400" />
+              <span>标记<strong>差距项</strong>，告诉你差在哪儿</span>
+            </div>
+            <div className="flex items-center gap-2 text-green-600">
+              <span className="w-1 h-1 rounded-full bg-green-500" />
+              <span>给出针对性<strong>改进建议</strong></span>
+            </div>
           </div>
         </div>
       ),
     },
+    // 3. JD 分析
     {
       icon: '📊',
       title: '不只是打分的 JD 分析',
       body: (
         <div className="text-sm text-gray-700 leading-relaxed space-y-3">
           <p>AI 会给每个 JD 打出<strong className="text-brand-700">6 档匹配评分</strong>，更关键的是——</p>
-          <div className="bg-amber-50 rounded-lg p-3 text-xs text-amber-800 border border-amber-100">
-            <strong>匹配度 78%（中等偏上）</strong><br/>
-            ✅ 你的「用户调研」经历是加分项<br/>
-            ⚠️ 「数据分析」是简历缺失的关键词<br/>
-            💡 建议面试前重点补充数据相关表达
+          <div className="bg-amber-50 rounded-xl p-3.5 border border-amber-100 space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-lg font-bold text-amber-700">78</div>
+              <div className="text-xs text-amber-800"><strong>匹配度 78%（中等偏上）</strong></div>
+            </div>
+            <div className="text-[11px] space-y-1 text-amber-700 pl-1">
+              <div>✅ 「用户调研」经历是加分项</div>
+              <div>⚠️ 「数据分析」是简历缺失的关键词</div>
+              <div>💡 建议面试前重点补充数据相关表达</div>
+            </div>
           </div>
-          <p className="text-xs text-gray-500">相比网上那些「AI 模拟面试」，这是一份<strong>会持续帮你追踪岗位</strong>的真实工具。</p>
         </div>
       ),
     },
+    // 4. AI 陪练（新增）
+    {
+      icon: '🎯',
+      title: '面试前的 AI 陪练',
+      body: (
+        <div className="text-sm text-gray-700 leading-relaxed space-y-3">
+          <p>选定目标岗位后，AI 从<strong>两个方向</strong>帮你出题：</p>
+          <div className="space-y-2">
+            <div className="flex gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center text-sm flex-shrink-0">🤖</div>
+              <div className="bg-brand-50/50 rounded-lg px-3 py-2.5 flex-1 text-xs text-brand-800 border border-brand-100">
+                <strong>AI 简历深挖</strong><br/>
+                <span className="text-gray-600">读你的简历，找到面试官最容易追问的细节——<em>「实习里那个增长模型，数据怎么验证的？」</em></span>
+              </div>
+            </div>
+            <div className="flex justify-center">
+              <svg className="w-4 h-4 text-gray-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+            </div>
+            <div className="flex gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center text-sm flex-shrink-0">🔍</div>
+              <div className="bg-green-50/50 rounded-lg px-3 py-2.5 flex-1 text-xs text-green-800 border border-green-100">
+                <strong>全网真实面经</strong><br/>
+                <span className="text-gray-600">搜牛客/小红书/知乎上<strong>这家公司这个岗位</strong>的真实题目，过滤泛题</span>
+              </div>
+            </div>
+          </div>
+          <p className="text-[10px] text-gray-400">两道来源自动合并，每道题附参考要点——不是通用题库，是专属你的</p>
+        </div>
+      ),
+    },
+    // 5. 复盘
     {
       icon: '🧠',
       title: '面试后的 AI 复盘',
       body: (
         <div className="text-sm text-gray-700 leading-relaxed space-y-3">
-          <p>面完腾讯二面，把你能记起来的<strong className="text-brand-700">问答对话粘贴进来</strong>——</p>
-          <div className="bg-purple-50 rounded-lg p-3 text-xs text-purple-800 border border-purple-100">
-            <strong>AI 复盘结论示例：</strong><br/>
-            ✅ 「项目经历」讲得扎实，有数据有逻辑<br/>
-            ⚠️ 「为什么选产品方向」回答太泛，缺乏个人故事<br/>
-            💡 下次用「一个具体事件 + 你的判断」的结构重讲
+          <p>面完心仪的公司，把能记起来的<strong className="text-brand-700">问答对话粘贴进来</strong>——</p>
+          <div className="bg-purple-50 rounded-xl p-3.5 border border-purple-100 space-y-2">
+            <div className="text-xs text-purple-800">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <span className="text-purple-500 text-[10px] font-semibold uppercase tracking-wide">AI 复盘</span>
+                <span className="w-px h-3 bg-purple-200" />
+                <span className="text-[10px] text-purple-400">整体 7/10</span>
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-start gap-1.5">
+                  <span className="text-green-600 mt-0.5">✅</span>
+                  <span>「项目经历」讲得扎实，有数据有逻辑</span>
+                </div>
+                <div className="flex items-start gap-1.5">
+                  <span className="text-amber-600 mt-0.5">⚠️</span>
+                  <span>被问到<strong>「指标掉了怎么排查」</strong>——只说了数据方法，没先做业务归因（先分产品侧/渠道侧/外部因素）</span>
+                </div>
+                <div className="flex items-start gap-1.5">
+                  <span className="text-blue-600 mt-0.5">💡</span>
+                  <span>下次归因类问题，先说<strong>「我先从三个维度排查」</strong>再展开</span>
+                </div>
+              </div>
+            </div>
           </div>
-          <p className="text-xs text-gray-500">每次复盘都会写进你的<strong>个人画像</strong>，帮助 AI 在下一次建议中更懂你。</p>
         </div>
       ),
     },
+    // 6. 画像
     {
       icon: '🔄',
       title: '越用越懂你的画像系统',
       body: (
         <div className="text-sm text-gray-700 leading-relaxed space-y-3">
           <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
-              <div className="text-gray-400 mb-1">第 1 次使用</div>
-              <div className="space-y-0.5">
-                <span className="inline-block px-1.5 py-0.5 rounded bg-brand-100 text-brand-700 text-[10px]">学校/专业</span>{' '}
+            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+              <div className="text-gray-400 mb-1.5">第 1 次使用</div>
+              <div className="flex flex-wrap gap-1">
+                <span className="inline-block px-1.5 py-0.5 rounded bg-brand-100 text-brand-700 text-[10px]">学校/专业</span>
                 <span className="inline-block px-1.5 py-0.5 rounded bg-brand-100 text-brand-700 text-[10px]">求职方向</span>
               </div>
             </div>
-            <div className="bg-brand-50 rounded-lg p-2.5 border border-brand-100">
-              <div className="text-gray-400 mb-1">第 5 次使用</div>
-              <div className="space-y-0.5">
-                <span className="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px]">竞品分析</span>{' '}
-                <span className="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px]">用户洞察</span>{' '}
+            <div className="bg-brand-50 rounded-xl p-3 border border-brand-100">
+              <div className="text-gray-400 mb-1.5">第 5 次使用</div>
+              <div className="flex flex-wrap gap-1">
+                <span className="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px]">竞品分析</span>
+                <span className="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px]">用户洞察</span>
                 <span className="inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px]">技术理解偏弱</span>
               </div>
             </div>
@@ -807,6 +898,7 @@ function OnboardingFlow({ onDone }) {
         </div>
       ),
     },
+    // 7. 准备
     {
       icon: '🚀',
       title: '准备好了吗？',
@@ -844,17 +936,17 @@ function OnboardingFlow({ onDone }) {
 
   return (
     <div className={'modal-overlay transition-opacity duration-300 ' + (leaving ? 'opacity-0' : '')} style={leaving ? { animation: 'none' } : {}}>
-      <div className={'modal-card max-w-md p-5 sm:p-6 transition-all duration-300 ' + (leaving ? 'opacity-0 scale-95' : '')} style={leaving ? { animation: 'none' } : {}}>
+      <div className={'modal-card max-w-md p-5 sm:p-6 transition-all duration-300 relative ' + (leaving ? 'opacity-0 scale-95' : '')} style={leaving ? { animation: 'none' } : {}}>
         {/* 步骤指示器 */}
-        <div className="flex gap-1.5 mb-5">
+        <div className="flex gap-1.5 mb-5 pr-10">
           {cards.map((_, i) => (
             <div key={i} className={'h-1 rounded-full flex-1 transition-all duration-400 ' + (i <= step ? 'bg-brand-600' : 'bg-gray-200')} />
           ))}
         </div>
 
-        {/* 跳过按钮 - 始终可见 */}
+        {/* 跳过按钮 - 右上角，避让进度条 */}
         {step < cards.length - 1 && (
-          <button onClick={skip} className="absolute top-4 right-4 text-xs text-gray-400 hover:text-gray-600 transition">跳过 →</button>
+          <button onClick={skip} className="absolute top-5 right-5 text-[11px] text-gray-400 hover:text-gray-600 transition">跳过 →</button>
         )}
 
         <div className="flex items-center gap-3 mb-3">
