@@ -4109,7 +4109,7 @@ function WallPage() {
     className: "text-xs text-gray-600 line-clamp-2 leading-relaxed"
   }, c.card_body.replace(/\n/g, ' ').slice(0, 200)), /*#__PURE__*/React.createElement("div", {
     className: "flex items-center gap-3 mt-2 text-[10px] text-gray-400"
-  }, /*#__PURE__*/React.createElement("span", null, c.author_display || c.author_name || '匿名'), /*#__PURE__*/React.createElement("span", null, relTime(c.created_at)), /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", null, c.author_display || c.author_name || '用户' + (c.user_id || '').slice(-4)), /*#__PURE__*/React.createElement("span", null, relTime(c.created_at)), /*#__PURE__*/React.createElement("span", {
     className: "flex items-center gap-0.5"
   }, "\uD83D\uDC4D ", c.like_count || 0), /*#__PURE__*/React.createElement("span", {
     className: "flex items-center gap-0.5"
@@ -4151,6 +4151,7 @@ function WallCardDetail({
   const [loading, setLoading] = useState(true);
   const [customQ, setCustomQ] = useState('');
   const [replyText, setReplyText] = useState({});
+  const [bookmarked, setBookmarked] = useState(false);
   const loadCard = async () => {
     try {
       const r = await apiCall('/api/cards/' + cardId);
@@ -4188,6 +4189,30 @@ function WallCardDetail({
         is_liked: r.liked,
         like_count: (card.like_count || 0) + (r.liked ? 1 : -1)
       });
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  };
+  const doBookmark = async () => {
+    try {
+      const r = await apiCall('/api/likes', {
+        method: 'POST',
+        body: JSON.stringify({
+          target_type: 'bookmark',
+          target_id: cardId
+        })
+      });
+      setBookmarked(r.liked);
+    } catch {}
+  };
+  const doDelete = async () => {
+    if (!confirm('确定删除这条面经？')) return;
+    try {
+      await apiCall('/api/cards/' + cardId, {
+        method: 'DELETE'
+      });
+      toast('已删除', 'success');
+      onClose();
     } catch (e) {
       toast(e.message, 'error');
     }
@@ -4267,7 +4292,7 @@ function WallCardDetail({
     className: "space-y-4"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center gap-3 text-xs text-gray-500"
-  }, /*#__PURE__*/React.createElement("span", null, card.author_display || card.author_name || '匿名'), card.score != null && /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", null, card.author_display || card.author_name || '用户' + (card.user_id || '').slice(-4)), card.score != null && /*#__PURE__*/React.createElement("span", {
     className: "text-brand-700 font-semibold"
   }, card.score, "/10"), card.round_number && /*#__PURE__*/React.createElement("span", null, "\u7B2C", card.round_number, "\u8F6E", card.round_type ? ' · ' + card.round_type : '')), card.card_title && /*#__PURE__*/React.createElement("div", {
     className: "text-base font-semibold text-gray-900"
@@ -4283,9 +4308,15 @@ function WallCardDetail({
   }, /*#__PURE__*/React.createElement("button", {
     onClick: doLike,
     className: 'flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg transition ' + (card.is_liked ? 'bg-brand-50 text-brand-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')
-  }, "\uD83D\uDC4D ", card.like_count || 0), /*#__PURE__*/React.createElement("span", {
+  }, "\uD83D\uDC4D ", card.like_count || 0), /*#__PURE__*/React.createElement("button", {
+    onClick: doBookmark,
+    className: "text-sm px-2 py-1 rounded-lg hover:bg-gray-100 transition"
+  }, bookmarked ? '⭐' : '☆'), /*#__PURE__*/React.createElement("span", {
     className: "text-xs text-gray-400"
-  }, "\uD83D\uDCAC ", card.question_count || 0, " \u4E2A\u8FFD\u95EE")), aiQuestions.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "\uD83D\uDCAC ", card.question_count || 0, " \u4E2A\u8FFD\u95EE"), isOwner && /*#__PURE__*/React.createElement("button", {
+    onClick: doDelete,
+    className: "text-[10px] text-gray-400 hover:text-rose-600 transition ml-auto"
+  }, "\u5220\u9664")), aiQuestions.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "space-y-2 pt-2 border-t border-gray-100"
   }, /*#__PURE__*/React.createElement("div", {
     className: "text-xs font-medium text-gray-500"
@@ -4312,7 +4343,7 @@ function WallCardDetail({
     className: "text-xs text-gray-800"
   }, /*#__PURE__*/React.createElement("span", {
     className: "font-medium"
-  }, q.asker_display || q.asker_name || '匿名'), /*#__PURE__*/React.createElement("span", {
+  }, q.asker_display || q.asker_name || '用户' + (q.asker_id || '').slice(-4)), /*#__PURE__*/React.createElement("span", {
     className: "text-gray-400 ml-1"
   }, "\u95EE\uFF1A"), q.question_text), /*#__PURE__*/React.createElement("button", {
     onClick: () => doLikeQ(q.id),
@@ -5032,9 +5063,34 @@ function SettingsPage() {
   const [emailModal, setEmailModal] = useState(false);
   const [resetModal, setResetModal] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
+  const [profile, setProfile] = useState({
+    name: '',
+    display_name: '',
+    target_track: ''
+  });
+  const [profileSaving, setProfileSaving] = useState(false);
   useEffect(() => {
     apiCall('/api/me/quota').then(r => setQuota(r)).catch(() => {});
-  }, []);
+    setProfile({
+      name: user?.name || '',
+      display_name: user?.display_name || '',
+      target_track: user?.target_track || ''
+    });
+  }, [user]);
+  const saveProfile = async () => {
+    setProfileSaving(true);
+    try {
+      await apiCall('/api/me/profile', {
+        method: 'PUT',
+        body: JSON.stringify(profile)
+      });
+      toast('已保存', 'success');
+      refreshUser();
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+    setProfileSaving(false);
+  };
   const saveByok = async () => {
     setSaving(true);
     try {
@@ -5062,27 +5118,75 @@ function SettingsPage() {
     className: "p-5"
   }, /*#__PURE__*/React.createElement("h3", {
     className: "font-semibold text-gray-900 mb-3"
-  }, "\u8D26\u53F7"), /*#__PURE__*/React.createElement("div", {
-    className: "space-y-2 text-sm"
+  }, "\u4E2A\u4EBA\u4FE1\u606F"), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-3 text-sm"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "flex justify-between"
+    className: "flex justify-between items-center"
   }, /*#__PURE__*/React.createElement("span", {
     className: "text-gray-500"
   }, "\u7528\u6237 ID"), /*#__PURE__*/React.createElement("span", {
     className: "text-gray-900 font-mono text-xs"
-  }, user?.id)), /*#__PURE__*/React.createElement("div", {
-    className: "flex justify-between"
+  }, user?.id?.slice(0, 12), "...")), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "text-gray-500"
-  }, "\u59D3\u540D"), /*#__PURE__*/React.createElement("span", {
-    className: "text-gray-900"
-  }, user?.name || '未设置')), /*#__PURE__*/React.createElement("div", {
-    className: "flex justify-between"
+    className: "text-gray-500 w-16 flex-shrink-0"
+  }, "\u663E\u793A\u540D"), /*#__PURE__*/React.createElement("input", {
+    className: "flex-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-sm",
+    placeholder: "\u9762\u7ECF\u5899\u4E0A\u663E\u793A\u7684\u540D\u5B57",
+    value: profile.display_name,
+    onChange: e => setProfile({
+      ...profile,
+      display_name: e.target.value
+    })
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "text-gray-500"
-  }, "\u6C42\u804C\u65B9\u5411"), /*#__PURE__*/React.createElement("span", {
-    className: "text-gray-900"
-  }, user?.target_track || '未设置')), /*#__PURE__*/React.createElement("div", {
+    className: "text-gray-500 w-16 flex-shrink-0"
+  }, "\u59D3\u540D"), /*#__PURE__*/React.createElement("input", {
+    className: "flex-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-sm",
+    placeholder: "\u4F60\u7684\u540D\u5B57",
+    value: profile.name,
+    onChange: e => setProfile({
+      ...profile,
+      name: e.target.value
+    })
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-gray-500 w-16 flex-shrink-0"
+  }, "\u6C42\u804C\u65B9\u5411"), /*#__PURE__*/React.createElement("select", {
+    className: "flex-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-sm bg-white",
+    value: profile.target_track,
+    onChange: e => setProfile({
+      ...profile,
+      target_track: e.target.value
+    })
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u672A\u8BBE\u7F6E"), /*#__PURE__*/React.createElement("option", {
+    value: "tech"
+  }, "\u6280\u672F/\u7814\u53D1"), /*#__PURE__*/React.createElement("option", {
+    value: "product"
+  }, "\u4EA7\u54C1"), /*#__PURE__*/React.createElement("option", {
+    value: "operation"
+  }, "\u8FD0\u8425"), /*#__PURE__*/React.createElement("option", {
+    value: "market"
+  }, "\u5E02\u573A/BD"), /*#__PURE__*/React.createElement("option", {
+    value: "design"
+  }, "\u8BBE\u8BA1"), /*#__PURE__*/React.createElement("option", {
+    value: "data"
+  }, "\u6570\u636E/\u5206\u6790"), /*#__PURE__*/React.createElement("option", {
+    value: "other"
+  }, "\u5176\u4ED6"))), /*#__PURE__*/React.createElement("div", {
+    className: "pt-2"
+  }, /*#__PURE__*/React.createElement(Button, {
+    variant: "primary",
+    size: "sm",
+    onClick: saveProfile,
+    disabled: profileSaving
+  }, profileSaving ? '保存中...' : '保存')), /*#__PURE__*/React.createElement("div", {
+    className: "pt-2 border-t border-gray-100 space-y-2"
+  }, /*#__PURE__*/React.createElement("div", {
     className: "flex justify-between items-center"
   }, /*#__PURE__*/React.createElement("span", {
     className: "text-gray-500"
@@ -5091,7 +5195,7 @@ function SettingsPage() {
     variant: "secondary",
     onClick: () => setEmailModal(true)
   }, "\u7ED1\u5B9A\u90AE\u7BB1")), /*#__PURE__*/React.createElement("div", {
-    className: "flex justify-between items-center pt-2 border-t border-gray-100"
+    className: "flex justify-between items-center"
   }, /*#__PURE__*/React.createElement("span", {
     className: "text-gray-500"
   }, "\u91CD\u7F6E\u8D26\u53F7"), /*#__PURE__*/React.createElement(Button, {
@@ -5101,7 +5205,7 @@ function SettingsPage() {
       setResetConfirmText('');
       setResetModal(true);
     }
-  }, "\u91CD\u7F6E\u8D26\u53F7")))), quota && /*#__PURE__*/React.createElement(Card, {
+  }, "\u91CD\u7F6E\u8D26\u53F7"))))), quota && /*#__PURE__*/React.createElement(Card, {
     className: "p-5"
   }, /*#__PURE__*/React.createElement("h3", {
     className: "font-semibold text-gray-900 mb-3"
