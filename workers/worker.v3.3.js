@@ -3330,6 +3330,50 @@ async function handleGetCard(request, env, id) {
 }
 
 // POST /api/cards
+// POST /api/cards/generate —— 从复盘生成面经卡（V4-Flash，免用户配额）
+async function handleGenerateCard(request, env) {
+  const { user } = await requireAuth(request, env);
+  if (user.error) return user.error;
+  const uid = user.user ? user.user.id : user.id;
+  const body = await readJson(request) || {};
+  if (!body.review_id) return errResp('review_id required');
+
+  const review = await env.DB.prepare('SELECT * FROM reviews WHERE id = ? AND user_id = ?')
+    .bind(body.review_id, uid).first();
+  if (!review) return errResp('review not found', 404);
+
+  const position = review.position_id
+    ? await env.DB.prepare('SELECT * FROM positions WHERE id = ?').bind(review.position_id).first()
+    : null;
+  const cardMode = body.card_mode || 'qa';
+  const parsed = review.parsed_json ? JSON.parse(review.parsed_json) : null;
+  const insights = review.ai_insights ? JSON.parse(review.ai_insights) : null;
+
+  const qaText = parsed?.qa_pairs?.map((qa, i) =>
+    `Q${i+1}：${qa.interviewer_question || ''}\nA${i+1}：${qa.user_answer || ''}`
+  ).join('\n\n') || '';
+
+  const prompt = cardMode === 'qa'
+    ? `你是一个面试经验分享社区的编辑。请把以下面试复盘内容整理成一份适合公开分享的面经卡片，要求：\n1. 脱敏处理：去掉真实人名、具体薪资、公司内部项目名\n2. 保留面试问题和回答要点\n3. 语言自然口语化，不要AI感\n4. 控制在 300-800 字\n\n公司：${position?.company || '未填'}\n岗位：${position?.position_title || '未填'}\n\n复盘内容：\n${qaText || review.raw_text.slice(0, 2000)}\n\n只输出整理好的面经文本，不要加任何前缀说明。`
+    : `你是一个面试经验分享社区的编辑。请从以下面试复盘中提取出最核心的面试问题（只提取问题，不提取回答），整理成一份问题速览卡片，要求：\n1. 每条问题独立成行，前面加 - \n2. 语言保持原样，不要改写\n3. 控制在 200-500 字\n\n公司：${position?.company || '未填'}\n岗位：${position?.position_title || '未填'}\n\n复盘内容：\n${qaText || review.raw_text.slice(0, 2000)}\n\n只输出问题列表，不要加任何前缀说明。`;
+
+  try {
+    // 系统调用，不算用户配额
+    const apiKey = await getSecret(env.DEEPSEEK_API_KEY);
+    const resp = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: LLM_MODELS.FAST, messages: [{ role: 'user', content: prompt }], temperature: 0.5 }),
+    });
+    const data = await resp.json();
+    const cardBody = data.choices?.[0]?.message?.content?.trim() || '生成失败，请重试';
+
+    return jsonResp({ ok: true, card_body: cardBody, card_mode: cardMode });
+  } catch (e) {
+    return errResp('生成失败: ' + (e.message || e), 500);
+  }
+}
+
 async function handleCreateCard(request, env) {
   const { user } = await requireAuth(request, env);
   if (user.error) return user.error;
@@ -3976,6 +4020,7 @@ async function handleRequest(request, env, ctx) {
 
   // --- 面经墙 v3.3 ---
   if (path === '/api/cards' && method === 'GET') return handleListCards(request, env);
+  if (path === '/api/cards/generate' && method === 'POST') return handleGenerateCard(request, env);
   if (path === '/api/cards' && method === 'POST') return handleCreateCard(request, env);
 
   const mCard = path.match(/^\/api\/cards\/([\w-]+)$/);

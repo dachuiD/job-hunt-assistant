@@ -3176,11 +3176,54 @@ function ReviewViewer({
   reviewId,
   onClose
 }) {
+  const {
+    toast
+  } = useApp();
   const [review, setReview] = useState(null);
   const [error, setError] = useState(false);
+  const [shareMode, setShareMode] = useState(null);
+  const [sharePreview, setSharePreview] = useState('');
+  const [shareLoading, setShareLoading] = useState(false);
   useEffect(() => {
     apiCall('/api/reviews/' + reviewId).then(r => setReview(r.review)).catch(() => setError(true));
   }, [reviewId]);
+  const doShareGenerate = async mode => {
+    setShareMode(mode);
+    setShareLoading(true);
+    try {
+      const r = await apiCall('/api/cards/generate', {
+        method: 'POST',
+        body: JSON.stringify({
+          review_id: reviewId,
+          card_mode: mode
+        })
+      });
+      setSharePreview(r.card_body || '');
+    } catch (e) {
+      toast(e.message, 'error');
+      setShareMode(null);
+    }
+    setShareLoading(false);
+  };
+  const doPublish = async body => {
+    try {
+      await apiCall('/api/cards', {
+        method: 'POST',
+        body: JSON.stringify({
+          company: review.position?.company || '',
+          position_title: review.position?.position_title || '',
+          card_body: body,
+          card_mode: shareMode,
+          publish: true
+        })
+      });
+      toast('已发布到面经墙 ✨', 'success');
+      setShareMode(null);
+      setSharePreview('');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  };
   if (error) {
     return /*#__PURE__*/React.createElement(Modal, {
       open: true,
@@ -3203,7 +3246,7 @@ function ReviewViewer({
   }
   const parsed = review.parsed;
   const insights = review.insights;
-  return /*#__PURE__*/React.createElement(Modal, {
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Modal, {
     open: true,
     onClose: onClose,
     title: "\u590D\u76D8\u5206\u6790",
@@ -3260,17 +3303,61 @@ function ReviewViewer({
   }, "\u5206\u7C7B\uFF1A", qa.category), /*#__PURE__*/React.createElement("div", {
     className: "text-xs text-gray-600 mt-1"
   }, "A: ", qa.user_answer))))), /*#__PURE__*/React.createElement("div", {
-    className: "pt-3 border-t border-gray-100 text-center"
+    className: "pt-3 border-t border-gray-100"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] text-gray-400 mb-1"
-  }, "\uD83D\uDCAB \u5206\u4EAB\u5230\u9762\u7ECF\u5899\uFF0C\u6512\u4EBA\u54C1 +1"), /*#__PURE__*/React.createElement(Button, {
-    size: "sm",
-    variant: "ghost",
+    className: "text-[10px] text-gray-400 mb-2 text-center"
+  }, "\uD83D\uDCAB \u5206\u4EAB\u5230\u9762\u7ECF\u5899\uFF0C\u6512\u4EBA\u54C1 +1"), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 gap-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => doShareGenerate('qa'),
+    className: "p-2.5 rounded-lg border border-gray-200 text-xs text-left hover:border-brand-300 hover:bg-brand-50 transition"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "font-semibold block mb-0.5"
+  }, "\uD83D\uDCDD \u5B8C\u6574\u95EE\u7B54\u7248"), /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] text-gray-400"
+  }, "\u8131\u654F\u540E\u7684\u95EE\u7B54\u5168\u6587\uFF0CAI \u5E2E\u4F60\u6DA6\u8272")), /*#__PURE__*/React.createElement("button", {
+    onClick: () => doShareGenerate('q_only'),
+    className: "p-2.5 rounded-lg border border-gray-200 text-xs text-left hover:border-brand-300 hover:bg-brand-50 transition"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "font-semibold block mb-0.5"
+  }, "\uD83C\uDFAF \u95EE\u9898\u901F\u89C8\u7248"), /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] text-gray-400"
+  }, "\u53EA\u5C55\u793A\u9762\u8BD5\u5173\u952E\u95EE\u9898")))))), shareMode && !shareLoading && sharePreview && /*#__PURE__*/React.createElement(Modal, {
+    open: true,
+    onClose: () => {
+      setShareMode(null);
+      setSharePreview('');
+    },
+    title: "\u9884\u89C8\u9762\u7ECF\u5361",
+    maxWidth: "max-w-xl"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "space-y-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "bg-gray-50 rounded-xl p-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs text-gray-500 mb-2"
+  }, "AI \u5DF2\u751F\u6210\uFF0C\u4F60\u53EF\u4EE5\u7F16\u8F91\u540E\u518D\u53D1\u5E03"), /*#__PURE__*/React.createElement("textarea", {
+    className: "w-full px-3 py-2 rounded-lg border border-gray-200 text-sm leading-relaxed",
+    rows: 10,
+    value: sharePreview,
+    onChange: e => setSharePreview(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2 justify-end"
+  }, /*#__PURE__*/React.createElement(Button, {
+    variant: "secondary",
     onClick: () => {
-      onClose();
-      window.location.hash = 'wall';
+      setShareMode(null);
+      setSharePreview('');
     }
-  }, "\u53BB\u9762\u7ECF\u5899"))));
+  }, "\u53D6\u6D88"), /*#__PURE__*/React.createElement(Button, {
+    variant: "primary",
+    onClick: () => doPublish(sharePreview)
+  }, "\u53D1\u5E03\u5230\u9762\u7ECF\u5899 \u2728")))), shareLoading && /*#__PURE__*/React.createElement(Modal, {
+    open: true,
+    onClose: () => {}
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm text-gray-400 py-4 text-center"
+  }, "AI \u6B63\u5728\u751F\u6210\u9762\u7ECF\u5361\u7247...")));
 }
 
 // ==================== 画像池 ====================
@@ -4549,6 +4636,7 @@ function ReviewsPage() {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewing, setViewing] = useState(null);
+  const [pasteOpen, setPasteOpen] = useState(false);
   const load = async () => {
     try {
       const r = await apiCall('/api/reviews');
@@ -4564,14 +4652,12 @@ function ReviewsPage() {
   const relTime = ts => {
     if (!ts) return '';
     const diff = Date.now() - new Date(ts).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return '刚刚';
-    if (mins < 60) return mins + ' 分钟前';
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return hrs + ' 小时前';
-    const days = Math.floor(hrs / 24);
-    if (days < 30) return days + ' 天前';
-    return new Date(ts).toLocaleDateString('zh-CN');
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return '刚刚';
+    if (m < 60) return m + '分钟前';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + '小时前';
+    return Math.floor(h / 24) + '天前';
   };
   const statusLabel = s => s === 'done' ? '✅ 已分析' : s === 'processing' ? '⏳ 分析中' : '⏳ 待分析';
   const stats = {
@@ -4582,7 +4668,13 @@ function ReviewsPage() {
     className: "animate-slide-up"
   }, /*#__PURE__*/React.createElement(PageHeader, {
     title: "\u9762\u8BD5\u590D\u76D8",
-    desc: stats.total === 0 ? '每次面试后粘贴复盘，AI 帮你分析表现' : `${stats.total} 次复盘 · ${stats.done} 次已分析`
+    desc: stats.total === 0 ? '每次面试后粘贴复盘，AI 帮你分析表现' : `${stats.total} 次复盘 · ${stats.done} 次已分析`,
+    action: /*#__PURE__*/React.createElement(Button, {
+      variant: "primary",
+      onClick: () => setPasteOpen(true)
+    }, /*#__PURE__*/React.createElement(Icon.Plus, {
+      className: "w-4 h-4 mr-1"
+    }), "\u7C98\u8D34\u590D\u76D8")
   }), loading ? /*#__PURE__*/React.createElement(Card, {
     className: "p-8 text-center text-gray-400 text-sm"
   }, "\u52A0\u8F7D\u4E2D...") : list.length === 0 ? /*#__PURE__*/React.createElement(Card, {
@@ -4590,11 +4682,11 @@ function ReviewsPage() {
   }, /*#__PURE__*/React.createElement(EmptyState, {
     icon: "\uD83D\uDCDD",
     title: "\u8FD8\u6CA1\u6709\u590D\u76D8\u8BB0\u5F55",
-    desc: "\u5728\u300C\u5C97\u4F4D\u770B\u677F\u300D\u4E2D\uFF0C\u70B9\u51FB\u9762\u8BD5\u8F6E\u6B21\u7684\u300C\u590D\u76D8\u300D\u6309\u94AE\uFF0C\u7C98\u8D34\u9762\u8BD5\u56DE\u5FC6\uFF0CAI \u4F1A\u5206\u6790\u4F60\u7684\u8868\u73B0\u5E76\u5199\u5165\u4E2A\u4EBA\u753B\u50CF",
+    desc: "\u7C98\u8D34\u9762\u8BD5\u56DE\u5FC6\uFF0CAI \u5E2E\u4F60\u7ED3\u6784\u5316\u5206\u6790\u5E76\u5199\u5165\u4E2A\u4EBA\u753B\u50CF",
     action: /*#__PURE__*/React.createElement(Button, {
       variant: "primary",
-      onClick: () => navigate('positions')
-    }, "\u53BB\u5C97\u4F4D\u770B\u677F")
+      onClick: () => setPasteOpen(true)
+    }, "\u7C98\u8D34\u7B2C\u4E00\u4EFD\u590D\u76D8")
   })) : /*#__PURE__*/React.createElement("div", {
     className: "space-y-2"
   }, list.map(r => /*#__PURE__*/React.createElement(Card, {
@@ -4617,19 +4709,113 @@ function ReviewsPage() {
     className: "text-[10px] text-gray-400"
   }, relTime(r.created_at))), r.preview && /*#__PURE__*/React.createElement("div", {
     className: "text-xs text-gray-600 line-clamp-2 mt-1"
-  }, r.preview)), /*#__PURE__*/React.createElement("div", {
-    className: "flex-shrink-0 flex gap-1"
-  }, r.parse_status === 'done' && /*#__PURE__*/React.createElement(Button, {
-    size: "sm",
-    variant: "ghost",
-    onClick: e => {
-      e.stopPropagation();
-      setViewing(r.id);
-    }
-  }, "\u67E5\u770B\u5206\u6790")))))), viewing && /*#__PURE__*/React.createElement(ReviewViewer, {
+  }, r.preview)))))), viewing && /*#__PURE__*/React.createElement(ReviewViewer, {
     reviewId: viewing,
-    onClose: () => setViewing(null)
+    onClose: () => {
+      setViewing(null);
+      load();
+    }
+  }), pasteOpen && /*#__PURE__*/React.createElement(ReviewPasteModal, {
+    onClose: () => setPasteOpen(false),
+    onDone: reviewId => {
+      setPasteOpen(false);
+      load();
+      setViewing(reviewId);
+    }
   }));
+}
+
+// 复盘粘贴弹窗（在复盘Tab直接打开）
+function ReviewPasteModal({
+  onClose,
+  onDone
+}) {
+  const {
+    toast
+  } = useApp();
+  const [positions, setPositions] = useState([]);
+  const [positionId, setPositionId] = useState('');
+  const [roundId, setRoundId] = useState('');
+  const [rounds, setRounds] = useState([]);
+  const [rawText, setRawText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  useEffect(() => {
+    apiCall('/api/positions').then(r => {
+      setPositions(r.positions || []);
+      if (r.positions?.length > 0) setPositionId(r.positions[0].id);
+    }).catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (!positionId) return;
+    apiCall('/api/positions/' + positionId + '/rounds').then(r => setRounds(r.rounds || [])).catch(() => {});
+  }, [positionId]);
+  const submit = async () => {
+    if (!positionId) return toast('请选择岗位', 'error');
+    if (rawText.trim().length < 30) return toast('复盘内容至少 30 字', 'error');
+    setSubmitting(true);
+    try {
+      const r = await apiCall('/api/reviews', {
+        method: 'POST',
+        body: JSON.stringify({
+          position_id: positionId,
+          round_id: roundId || null,
+          raw_text: rawText.trim()
+        })
+      });
+      toast('AI 复盘分析完成', 'success');
+      onDone(r.id || r.review?.id);
+    } catch (e) {
+      handleApiError(e, toast);
+    }
+    setSubmitting(false);
+  };
+  return /*#__PURE__*/React.createElement(Modal, {
+    open: true,
+    onClose: onClose,
+    title: "\u7C98\u8D34\u590D\u76D8",
+    maxWidth: "max-w-xl"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "space-y-3"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: "text-xs font-medium text-gray-700 mb-1 block"
+  }, "\u5173\u8054\u5C97\u4F4D"), /*#__PURE__*/React.createElement("select", {
+    className: "w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white",
+    value: positionId,
+    onChange: e => setPositionId(e.target.value)
+  }, positions.map(p => /*#__PURE__*/React.createElement("option", {
+    key: p.id,
+    value: p.id
+  }, p.company, " \xB7 ", p.position_title)))), rounds.length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: "text-xs font-medium text-gray-700 mb-1 block"
+  }, "\u5173\u8054\u8F6E\u6B21\uFF08\u9009\u586B\uFF09"), /*#__PURE__*/React.createElement("select", {
+    className: "w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white",
+    value: roundId,
+    onChange: e => setRoundId(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u4E0D\u5173\u8054\u7279\u5B9A\u8F6E\u6B21"), rounds.map(r => /*#__PURE__*/React.createElement("option", {
+    key: r.id,
+    value: r.id
+  }, "\u7B2C", r.round_number, "\u8F6E", r.round_type ? ' · ' + r.round_type : '')))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: "text-xs font-medium text-gray-700 mb-1 block"
+  }, "\u590D\u76D8\u5185\u5BB9"), /*#__PURE__*/React.createElement("textarea", {
+    className: "w-full px-3 py-2 rounded-lg border border-gray-300 text-sm leading-relaxed",
+    rows: 8,
+    placeholder: "\u7C98\u8D34\u9762\u8BD5\u7684\u5B8C\u6574\u56DE\u5FC6\uFF0C\u8D8A\u8BE6\u7EC6\u8D8A\u597D\u3002\u793A\u4F8B\uFF1A\u9762\u8BD5\u5B98\u95EE\uFF1A\u4E3A\u4EC0\u4E48\u9009\u4EA7\u54C1\u65B9\u5411\uFF1F\u6211\u7B54\uFF1A...",
+    value: rawText,
+    onChange: e => setRawText(e.target.value)
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs text-gray-400 mt-1"
+  }, rawText.length, " \u5B57")), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2 justify-end"
+  }, /*#__PURE__*/React.createElement(Button, {
+    variant: "secondary",
+    onClick: onClose
+  }, "\u53D6\u6D88"), /*#__PURE__*/React.createElement(Button, {
+    variant: "primary",
+    onClick: submit,
+    disabled: submitting
+  }, submitting ? 'AI 分析中...' : '提交并查看分析'))));
 }
 
 // ==================== 通知中心 ====================
