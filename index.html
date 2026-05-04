@@ -402,6 +402,7 @@ const Icon = {
   Plus: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>,
   ArrowRight: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>,
   Info: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>,
+  Wall: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="4" y1="21" x2="4" y2="3" /><path d="M4 3l16 0c1.1 0 2 .9 2 2l0 4c0 1.1-.9 2-2 2l-10 0l-8 0" /><path d="M4 11l16 0" /></svg>,
 };
 
 // ==================== 全局应用上下文 ====================
@@ -590,6 +591,7 @@ function Layout({ children }) {
     { key: 'profile', label: '我的画像', icon: Icon.Profile },
     { key: 'practice', label: '陪练题', icon: Icon.Practice },
     { key: 'suggestions', label: 'AI 建议', icon: Icon.Suggestion },
+    { key: 'wall', label: '面经墙', icon: Icon.Wall },
     { key: 'notifications', label: '通知', icon: Icon.Bell, badge: unreadCount },
     { key: 'settings', label: '设置', icon: Icon.Settings },
   ];
@@ -683,7 +685,7 @@ function Layout({ children }) {
           <div className="px-4 py-3 border-t border-gray-100 text-[11px] text-gray-400 leading-tight">
             by dxh 同学
             <span className="mx-1.5 text-gray-300">·</span>
-            v3.2
+            v3.3
           </div>
         </aside>
 
@@ -2691,6 +2693,10 @@ function ReviewViewer({ reviewId, onClose }) {
             </div>
           </Section>
         )}
+        <div className="pt-3 border-t border-gray-100 text-center">
+          <div className="text-[10px] text-gray-400 mb-1">💫 分享到面经墙，攒人品 +1</div>
+          <Button size="sm" variant="ghost" onClick={() => { onClose(); window.location.hash = 'wall'; }}>去面经墙</Button>
+        </div>
       </div>
     </Modal>
   );
@@ -3212,6 +3218,400 @@ function PastePracticeModal({ positions, onClose, onDone }) {
   );
 }
 
+// ==================== 面经墙 v3.3 ====================
+function WallPage() {
+  const { toast, user } = useApp();
+  const [cards, setCards] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [tagFilter, setTagFilter] = useState('');
+  const [viewing, setViewing] = useState(null);
+  const [showPublish, setShowPublish] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      let url = '/api/cards';
+      if (search) url += '?company=' + encodeURIComponent(search);
+      if (tagFilter) url += (url.includes('?') ? '&' : '?') + 'tag=' + encodeURIComponent(tagFilter);
+      const r = await apiCall(url);
+      setCards(r.cards || []);
+    } catch (e) { toast(e.message, 'error'); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const relTime = (ts) => {
+    if (!ts) return '';
+    const diff = Date.now() - new Date(ts).getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return '刚刚';
+    if (m < 60) return m + '分钟前';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + '小时前';
+    return Math.floor(h / 24) + '天前';
+  };
+
+  const tags = ['产品', '技术', '运营', '数据', '设计', '市场'];
+
+  return (
+    <div className="animate-slide-up">
+      <PageHeader
+        title="面经墙"
+        desc="分享真实面试经验，帮到别人，也攒自己的人品池 ✨"
+        action={
+          <Button variant="primary" onClick={() => setShowPublish(true)}>
+            <Icon.Plus className="w-4 h-4 mr-1" /> 分享我的面经
+          </Button>
+        }
+      />
+
+      {/* 搜索 + 标签筛选 */}
+      <div className="flex gap-2 mb-4 flex-wrap">
+        <input className="flex-1 min-w-[160px] px-3 py-2 rounded-lg border border-gray-300 text-sm"
+          placeholder="搜公司名..." value={search}
+          onChange={e => setSearch(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && load()} />
+        <Button variant="secondary" onClick={load}>搜索</Button>
+        <div className="flex gap-1 flex-wrap">
+          {tags.map(t => (
+            <button key={t} onClick={() => { setTagFilter(tagFilter === t ? '' : t); }}
+              className={'px-2.5 py-1 rounded-lg text-xs font-medium transition ' + (tagFilter === t ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
+              #{t}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading ? (
+        <Card className="p-8 text-center text-gray-400 text-sm">加载中...</Card>
+      ) : cards.length === 0 ? (
+        <Card className="p-0">
+          <EmptyState icon="🚩" title="面经墙还是空的" desc="分享你的第一份面试经验，攒人品 +1" action={<Button variant="primary" onClick={() => setShowPublish(true)}>分享面经</Button>} />
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {cards.map(c => (
+            <Card key={c.id} className="p-4 clickable" onClick={() => setViewing(c.id)}>
+              <div className="flex items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <span className="font-semibold text-gray-900 text-sm">{c.company}</span>
+                    <span className="text-xs text-gray-500">· {c.position_title}</span>
+                    {c.score != null && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-50 text-brand-700">{c.score}/10</span>
+                    )}
+                    {c.round_number && (
+                      <span className="text-[10px] text-gray-400">第{c.round_number}轮</span>
+                    )}
+                  </div>
+                  {c.card_title && <div className="text-sm font-medium text-gray-800 mb-0.5">{c.card_title}</div>}
+                  <div className="text-xs text-gray-600 line-clamp-2 leading-relaxed">{c.card_body.replace(/\n/g, ' ').slice(0, 200)}</div>
+                  <div className="flex items-center gap-3 mt-2 text-[10px] text-gray-400">
+                    <span>{(c.author_display || c.author_name || '匿名')}</span>
+                    <span>{relTime(c.created_at)}</span>
+                    <span className="flex items-center gap-0.5">👍 {c.like_count || 0}</span>
+                    <span className="flex items-center gap-0.5">💬 {c.question_count || 0}</span>
+                  </div>
+                </div>
+                {c.card_mode === 'q_only' && (
+                  <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">仅问题</span>
+                )}
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {viewing && <WallCardDetail cardId={viewing} onClose={() => { setViewing(null); load(); }} />}
+      {showPublish && <WallPublishModal onClose={() => setShowPublish(false)} onDone={() => { setShowPublish(false); load(); }} />}
+    </div>
+  );
+}
+
+function WallCardDetail({ cardId, onClose }) {
+  const { toast, user } = useApp();
+  const [card, setCard] = useState(null);
+  const [questions, setQuestions] = useState([]);
+  const [aiQuestions, setAiQuestions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [customQ, setCustomQ] = useState('');
+  const [replyText, setReplyText] = useState({});
+
+  const loadCard = async () => {
+    try {
+      const r = await apiCall('/api/cards/' + cardId);
+      setCard(r.card);
+      const qr = await apiCall('/api/cards/' + cardId + '/questions');
+      setQuestions(qr.questions || []);
+    } catch (e) { toast(e.message, 'error'); }
+    setLoading(false);
+  };
+
+  const loadAI = async () => {
+    try {
+      const r = await apiCall('/api/cards/' + cardId + '/questions/generate', { method: 'POST' });
+      setAiQuestions(r.questions || []);
+    } catch {}
+  };
+
+  useEffect(() => { loadCard(); loadAI(); }, [cardId]);
+
+  const doLike = async () => {
+    try {
+      const r = await apiCall('/api/likes', { method: 'POST', body: JSON.stringify({ target_type: 'card', target_id: cardId }) });
+      setCard({ ...card, is_liked: r.liked, like_count: (card.like_count || 0) + (r.liked ? 1 : -1) });
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  const doAsk = async (text) => {
+    if (!text.trim()) return;
+    try {
+      await apiCall('/api/cards/' + cardId + '/questions', {
+        method: 'POST',
+        body: JSON.stringify({ question_text: text, is_ai_generated: aiQuestions.includes(text) }),
+      });
+      toast('已提问，等待卡主回复', 'success');
+      loadCard();
+      loadAI();
+      setCustomQ('');
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  const doReply = async (qid, text) => {
+    if (!text.trim()) return;
+    try {
+      await apiCall('/api/cards/' + cardId + '/questions/' + qid, {
+        method: 'PUT',
+        body: JSON.stringify({ reply_text: text }),
+      });
+      toast('已回复', 'success');
+      loadCard();
+      setReplyText({ ...replyText, [qid]: '' });
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  const doLikeQ = async (qid) => {
+    try {
+      await apiCall('/api/likes', { method: 'POST', body: JSON.stringify({ target_type: 'question', target_id: qid }) });
+      loadCard();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  if (loading) return <Modal open onClose={onClose} title="加载中..."><div className="text-sm text-gray-400 py-4 text-center">加载中...</div></Modal>;
+  if (!card) return <Modal open onClose={onClose} title="面经详情"><div className="text-sm text-red-500 py-4 text-center">加载失败</div></Modal>;
+
+  const isOwner = user?.id === card.user_id;
+
+  return (
+    <Modal open onClose={onClose} title={card.company + ' · ' + card.position_title} maxWidth="max-w-2xl">
+      <div className="space-y-4">
+        {/* 卡片信息 */}
+        <div className="flex items-center gap-3 text-xs text-gray-500">
+          <span>{(card.author_display || card.author_name || '匿名')}</span>
+          {card.score != null && <span className="text-brand-700 font-semibold">{card.score}/10</span>}
+          {card.round_number && <span>第{card.round_number}轮{card.round_type ? ' · ' + card.round_type : ''}</span>}
+        </div>
+
+        {card.card_title && <div className="text-base font-semibold text-gray-900">{card.card_title}</div>}
+
+        <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap bg-gray-50 rounded-xl p-4">{card.card_body}</div>
+
+        {card.ai_tags && (
+          <div className="flex gap-1 flex-wrap">
+            {JSON.parse(card.ai_tags || '[]').map((t, i) => (
+              <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-brand-50 text-brand-700">#{t}</span>
+            ))}
+          </div>
+        )}
+
+        {/* 操作栏 */}
+        <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
+          <button onClick={doLike} className={'flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg transition ' + (card.is_liked ? 'bg-brand-50 text-brand-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
+            👍 {card.like_count || 0}
+          </button>
+          <span className="text-xs text-gray-400">💬 {card.question_count || 0} 个追问</span>
+        </div>
+
+        {/* AI 推荐问题 */}
+        {aiQuestions.length > 0 && (
+          <div className="space-y-2 pt-2 border-t border-gray-100">
+            <div className="text-xs font-medium text-gray-500">🤖 AI 推荐追问</div>
+            <div className="space-y-1.5">
+              {aiQuestions.map((q, i) => {
+                const asked = questions.some(qq => qq.question_text === q);
+                return (
+                  <button key={i} disabled={asked}
+                    onClick={() => doAsk(q)}
+                    className={'w-full text-left px-3 py-2 rounded-lg text-xs transition ' + (asked ? 'bg-gray-50 text-gray-300 cursor-default' : 'bg-gray-50 text-gray-700 hover:bg-brand-50 hover:text-brand-700 border border-gray-100 hover:border-brand-200')}>
+                    {asked ? '✅ ' : ''}{q}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* 问答区 */}
+        {questions.filter(q => !q.is_hidden).length > 0 && (
+          <div className="space-y-2 pt-2 border-t border-gray-100">
+            <div className="text-xs font-medium text-gray-500">问答</div>
+            {questions.filter(q => !q.is_hidden).map(q => (
+              <div key={q.id} className="bg-gray-50 rounded-lg p-3 space-y-1.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="text-xs text-gray-800">
+                    <span className="font-medium">{(q.asker_display || q.asker_name || '匿名')}</span>
+                    <span className="text-gray-400 ml-1">问：</span>
+                    {q.question_text}
+                  </div>
+                  <button onClick={() => doLikeQ(q.id)} className="text-[10px] text-gray-400 hover:text-brand-600 flex-shrink-0">👍 {q.like_count || 0}</button>
+                </div>
+                {q.reply_text ? (
+                  <div className="text-xs text-brand-700 bg-brand-50 rounded px-2.5 py-1.5">
+                    <span className="font-medium">卡主回复：</span>{q.reply_text}
+                  </div>
+                ) : isOwner ? (
+                  <div className="flex gap-2">
+                    <input className="flex-1 px-2 py-1 rounded border border-gray-200 text-xs"
+                      placeholder="输入回复..."
+                      value={replyText[q.id] || ''}
+                      onChange={e => setReplyText({ ...replyText, [q.id]: e.target.value })}
+                      onKeyDown={e => e.key === 'Enter' && doReply(q.id, replyText[q.id])} />
+                    <Button size="sm" variant="primary" onClick={() => doReply(q.id, replyText[q.id])}>回复</Button>
+                  </div>
+                ) : (
+                  <div className="text-[10px] text-gray-400 italic">等待卡主回复...</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 自定义提问 */}
+        <div className="pt-2 border-t border-gray-100">
+          <div className="flex gap-2">
+            <input className="flex-1 px-3 py-2 rounded-lg border border-gray-200 text-xs"
+              placeholder="自己有想问的？在这里提（卡主回复后可见）..."
+              value={customQ} onChange={e => setCustomQ(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && doAsk(customQ)} />
+            <Button size="sm" variant="secondary" onClick={() => doAsk(customQ)}>提问</Button>
+          </div>
+          <div className="text-[10px] text-gray-300 mt-1">自定义提问默认隐藏，卡主回复后公开可见</div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function WallPublishModal({ onClose, onDone }) {
+  const { toast } = useApp();
+  const [mode, setMode] = useState('qa');
+  const [company, setCompany] = useState('');
+  const [positionTitle, setPositionTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [title, setTitle] = useState('');
+  const [tags, setTags] = useState([]);
+  const [step, setStep] = useState(1);
+  const [submitting, setSubmitting] = useState(false);
+
+  const allTags = ['产品', '技术', '运营', '数据', '设计', '市场', '一面', '二面', '终面'];
+
+  const doPublish = async () => {
+    if (!company.trim()) return toast('请填写公司名', 'error');
+    if (!body.trim() || body.trim().length < 20) return toast('内容太短', 'error');
+    setSubmitting(true);
+    try {
+      await apiCall('/api/cards', {
+        method: 'POST',
+        body: JSON.stringify({
+          company: company.trim(), position_title: positionTitle.trim() || '未填岗位',
+          card_body: body.trim(), card_title: title.trim() || null,
+          card_mode: mode, ai_tags: tags, publish: true,
+        }),
+      });
+      toast('面经已发布 ✨', 'success');
+      onDone();
+    } catch (e) { toast(e.message, 'error'); }
+    setSubmitting(false);
+  };
+
+  if (step === 2) return (
+    <Modal open onClose={onClose} title="预览并发布" maxWidth="max-w-xl">
+      <div className="space-y-3">
+        <div className="bg-gray-50 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-sm font-semibold text-gray-900">{company || '未填公司'}</span>
+            {positionTitle && <span className="text-xs text-gray-500">· {positionTitle}</span>}
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700">{mode === 'qa' ? '完整问答' : '仅问题'}</span>
+          </div>
+          {title && <div className="text-sm font-medium text-gray-800 mb-1">{title}</div>}
+          <div className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{body}</div>
+          {tags.length > 0 && (
+            <div className="flex gap-1 mt-2 flex-wrap">
+              {tags.map(t => <span key={t} className="text-[10px] px-1.5 py-0.5 rounded bg-brand-50 text-brand-700">#{t}</span>)}
+            </div>
+          )}
+        </div>
+        <div className="flex gap-2 justify-end">
+          <Button variant="secondary" onClick={() => setStep(1)}>返回修改</Button>
+          <Button variant="primary" onClick={doPublish} disabled={submitting}>{submitting ? '发布中...' : '确认发布 ✨'}</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+
+  return (
+    <Modal open onClose={onClose} title="分享面经 · 攒人品 +1" maxWidth="max-w-xl">
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <input className="px-3 py-2 rounded-lg border border-gray-300 text-sm" placeholder="公司名（必填）" value={company} onChange={e => setCompany(e.target.value)} />
+          <input className="px-3 py-2 rounded-lg border border-gray-300 text-sm" placeholder="岗位名" value={positionTitle} onChange={e => setPositionTitle(e.target.value)} />
+        </div>
+
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">分享模式</label>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setMode('qa')} className={'p-2.5 rounded-lg border text-xs text-left transition ' + (mode === 'qa' ? 'border-brand-400 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-600 hover:border-gray-300')}>
+              <span className="font-semibold block mb-0.5">📝 完整问答版</span>
+              <span className="text-[10px] text-gray-400">脱敏后的问答全文</span>
+            </button>
+            <button onClick={() => setMode('q_only')} className={'p-2.5 rounded-lg border text-xs text-left transition ' + (mode === 'q_only' ? 'border-brand-400 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-600 hover:border-gray-300')}>
+              <span className="font-semibold block mb-0.5">🎯 问题速览版</span>
+              <span className="text-[10px] text-gray-400">只展示面试问题</span>
+            </button>
+          </div>
+        </div>
+
+        <input className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm" placeholder="一句话标题（选填，如：字节二面踩坑记）" value={title} onChange={e => setTitle(e.target.value)} />
+
+        <textarea className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm leading-relaxed" rows={8}
+          placeholder={mode === 'qa' ? '粘贴面试问答...\n\n面试官问：...\n我答：...' : '列出面试中被问到的关键问题...'}
+          value={body} onChange={e => setBody(e.target.value)} />
+
+        <div>
+          <label className="text-xs font-medium text-gray-700 mb-1 block">标签（选填）</label>
+          <div className="flex gap-1 flex-wrap">
+            {allTags.map(t => {
+              const active = tags.includes(t);
+              return (
+                <button key={t} onClick={() => setTags(active ? tags.filter(x => x !== t) : [...tags, t])}
+                  className={'px-2 py-0.5 rounded text-[10px] font-medium transition ' + (active ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200')}>
+                  #{t}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex gap-2 justify-end">
+          <Button variant="secondary" onClick={onClose}>取消</Button>
+          <Button variant="primary" onClick={() => setStep(2)}>预览</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // ==================== AI 建议 ====================
 function SuggestionsPage() {
   const { toast } = useApp();
@@ -3446,6 +3846,9 @@ function NotificationsPage() {
     profile_insight: '🧠 画像洞察',
     suggestion: '💡 AI 建议',
     resume_stale: '📄 简历提醒',
+    card_liked: '👍 面经被赞',
+    question_asked: '💬 新提问',
+    question_replied: '✉️ 回复提醒',
   }[t] || t);
 
   const unread = list.filter(n => n.read === 0);
@@ -3525,6 +3928,9 @@ function NotifPrefModal({ onClose }) {
     { key: 'profile_insight', label: '画像自审洞察' },
     { key: 'suggestion', label: 'AI 建议生成通知' },
     { key: 'resume_stale', label: '简历长期未更新（暂未启用）' },
+    { key: 'card_liked', label: '面经卡被赞' },
+    { key: 'question_asked', label: '有人向我提问' },
+    { key: 'question_replied', label: '我的问题有了回复' },
   ];
 
   return (
@@ -4149,6 +4555,7 @@ function Router() {
     case 'profile': return <ProfilePage />;
     case 'practice': return <PracticePage />;
     case 'suggestions': return <SuggestionsPage />;
+    case 'wall': return <WallPage />;
     case 'notifications': return <NotificationsPage />;
     case 'settings': return <SettingsPage />;
     case 'admin': return <AdminPage />;
