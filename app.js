@@ -752,6 +752,14 @@ function OnboardingFlow({
       emoji: '🔄',
       label: '个人画像',
       desc: '越用越懂你，建议越来越准'
+    }, {
+      emoji: '🚩',
+      label: '面经墙',
+      desc: '分享面试经验，攒人品社区'
+    }, {
+      emoji: '📊',
+      label: '岗位看板',
+      desc: '投递状态追踪，不再混乱'
     }].map((item, i) => /*#__PURE__*/React.createElement("div", {
       key: i,
       className: "bg-gray-50 rounded-xl p-3 border border-gray-100 hover:border-brand-200 transition-colors"
@@ -920,7 +928,31 @@ function OnboardingFlow({
       className: "text-xs text-gray-500"
     }, "AI \u4F1A\u6301\u7EED\u4ECE\u4F60\u7684", /*#__PURE__*/React.createElement("strong", null, "\u7B80\u5386\u2192JD\u2192\u9762\u8BD5\u590D\u76D8"), "\u4E2D\u5B66\u4E60\uFF0C\u5339\u914D\u5EFA\u8BAE\u8D8A\u6765\u8D8A\u4E2A\u6027\u5316\u3002"))
   },
-  // 7. 准备
+  // 7. 面经墙
+  {
+    icon: '🚩',
+    title: '面经墙 · 攒人品社区',
+    body: /*#__PURE__*/React.createElement("div", {
+      className: "text-sm text-gray-700 leading-relaxed space-y-3"
+    }, /*#__PURE__*/React.createElement("p", null, "\u9762\u8BD5\u5B8C\u522B\u6D6A\u8D39\u2014\u2014", /*#__PURE__*/React.createElement("strong", null, "\u628A\u7ECF\u9A8C\u5206\u4EAB\u5230\u9762\u7ECF\u5899"), "\uFF0C\u5E2E\u5230\u522B\u4EBA\uFF0C\u4E5F\u6512\u81EA\u5DF1\u7684\u4EBA\u54C1\u6C60 \u2728"), /*#__PURE__*/React.createElement("div", {
+      className: "bg-amber-50 rounded-xl p-3.5 border border-amber-100 space-y-2 text-xs"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-start gap-2"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-amber-500 mt-0.5"
+    }, "\uD83D\uDCDD"), /*#__PURE__*/React.createElement("span", null, "\u590D\u76D8\u5B8C\u6210\u540E\u4E00\u952E\u751F\u6210\u9762\u7ECF\u5361\u2014\u2014AI \u5E2E\u4F60\u8131\u654F\u6DA6\u8272\uFF0C\u4F60\u7F16\u8F91\u540E\u53D1\u5E03")), /*#__PURE__*/React.createElement("div", {
+      className: "flex items-start gap-2"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-amber-500 mt-0.5"
+    }, "\uD83D\uDCAC"), /*#__PURE__*/React.createElement("span", null, "\u5176\u4ED6\u7528\u6237\u53EF\u4EE5\u7528 AI \u63A8\u8350\u7684\u95EE\u9898\u5411\u4F60\u8FFD\u95EE\uFF0C\u4F60\u56DE\u590D\u5C31\u884C")), /*#__PURE__*/React.createElement("div", {
+      className: "flex items-start gap-2"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-amber-500 mt-0.5"
+    }, "\u2B50"), /*#__PURE__*/React.createElement("span", null, "\u6D4F\u89C8\u522B\u4EBA\u7684\u9762\u7ECF\u5361\uFF0C\u70B9\u8D5E + \u6536\u85CF + \u7B5B\u9009\u516C\u53F8\u5C97\u4F4D"))), /*#__PURE__*/React.createElement("p", {
+      className: "text-[10px] text-gray-400"
+    }, "\u8FD9\u662F\u6C42\u804C\u5C0F\u52A9\u72EC\u6709\u7684 UGC \u793E\u533A\uFF0C\u6765\u81EA\u771F\u5B9E\u9762\u8BD5\u8005\u7684\u771F\u5B9E\u7ECF\u9A8C"))
+  },
+  // 8. 准备
   {
     icon: '🚀',
     title: '准备好了吗？',

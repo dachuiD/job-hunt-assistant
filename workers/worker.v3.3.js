@@ -3593,7 +3593,7 @@ async function handleUpdateProfile(request, env) {
 
   if (updates.length === 0) return jsonResp({ ok: true });
 
-  updates.push('updated_at = ?'); bindings.push(now()); bindings.push(uid);
+  bindings.push(uid);
   await env.DB.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).bind(...bindings).run();
   return jsonResp({ ok: true });
 }
