@@ -3216,12 +3216,17 @@ function ReviewViewer({
   const [shareMode, setShareMode] = useState(null);
   const [sharePreview, setSharePreview] = useState('');
   const [shareLoading, setShareLoading] = useState(false);
+  const [shareTitle, setShareTitle] = useState('');
+  const [shareCompany, setShareCompany] = useState('');
+  const [sharePosition, setSharePosition] = useState('');
   useEffect(() => {
     apiCall('/api/reviews/' + reviewId).then(r => setReview(r.review)).catch(() => setError(true));
   }, [reviewId]);
   const doShareGenerate = async mode => {
     setShareMode(mode);
     setShareLoading(true);
+    setShareCompany(review.position?.company || '');
+    setSharePosition(review.position?.position_title || '');
     try {
       const r = await apiCall('/api/cards/generate', {
         method: 'POST',
@@ -3242,9 +3247,10 @@ function ReviewViewer({
       await apiCall('/api/cards', {
         method: 'POST',
         body: JSON.stringify({
-          company: review.position?.company || '',
-          position_title: review.position?.position_title || '',
+          company: shareCompany.trim() || review.position?.company || '',
+          position_title: sharePosition.trim() || review.position?.position_title || '',
           card_body: body,
+          card_title: shareTitle.trim() || null,
           card_mode: shareMode,
           publish: true
         })
@@ -3359,18 +3365,38 @@ function ReviewViewer({
     onClose: () => {
       setShareMode(null);
       setSharePreview('');
+      setShareTitle('');
+      setShareCompany('');
+      setSharePosition('');
     },
     title: "\u9884\u89C8\u9762\u7ECF\u5361",
     maxWidth: "max-w-xl"
   }, /*#__PURE__*/React.createElement("div", {
     className: "space-y-3"
   }, /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 gap-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "px-3 py-2 rounded-lg border border-gray-300 text-sm",
+    placeholder: "\u516C\u53F8\u540D",
+    value: shareCompany,
+    onChange: e => setShareCompany(e.target.value)
+  }), /*#__PURE__*/React.createElement("input", {
+    className: "px-3 py-2 rounded-lg border border-gray-300 text-sm",
+    placeholder: "\u5C97\u4F4D\u540D",
+    value: sharePosition,
+    onChange: e => setSharePosition(e.target.value)
+  })), /*#__PURE__*/React.createElement("input", {
+    className: "w-full px-3 py-2 rounded-lg border border-gray-300 text-sm",
+    placeholder: "\u4E00\u53E5\u8BDD\u6807\u9898\uFF08\u9009\u586B\uFF09",
+    value: shareTitle,
+    onChange: e => setShareTitle(e.target.value)
+  }), /*#__PURE__*/React.createElement("div", {
     className: "bg-gray-50 rounded-xl p-4"
   }, /*#__PURE__*/React.createElement("div", {
     className: "text-xs text-gray-500 mb-2"
   }, "AI \u5DF2\u751F\u6210\uFF0C\u4F60\u53EF\u4EE5\u7F16\u8F91\u540E\u518D\u53D1\u5E03"), /*#__PURE__*/React.createElement("textarea", {
     className: "w-full px-3 py-2 rounded-lg border border-gray-200 text-sm leading-relaxed",
-    rows: 10,
+    rows: 8,
     value: sharePreview,
     onChange: e => setSharePreview(e.target.value)
   })), /*#__PURE__*/React.createElement("div", {
@@ -3380,6 +3406,9 @@ function ReviewViewer({
     onClick: () => {
       setShareMode(null);
       setSharePreview('');
+      setShareTitle('');
+      setShareCompany('');
+      setSharePosition('');
     }
   }, "\u53D6\u6D88"), /*#__PURE__*/React.createElement(Button, {
     variant: "primary",
